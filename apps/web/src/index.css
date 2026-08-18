@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --app-height: 100dvh;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  height: 100dvh;
+  background-color: #0B0F19;
+  color: #F8FAFC;
+  font-family: 'Outfit', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-touch-callout: none;
+  user-select: none;
+  overscroll-behavior: none;
+  overflow-x: hidden;
+}
+
+/* Safe area support for iOS Notch & Android gesture bars */
+.safe-top {
+  padding-top: max(env(safe-area-inset-top), 0.75rem);
+}
+
+.safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+}
+
+/* Prevent accidental pull-to-refresh or gestures over canvas */
+canvas {
+  touch-action: none;
+}
+
+/* Custom button styles with party depth & tactile feedback */
+.btn-game-primary {
+  @apply bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold py-3 px-6 rounded-2xl shadow-xl transform active:scale-95 transition-all duration-150 border-b-4 border-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-400;
+}
+
+.btn-game-accent {
+  @apply bg-gradient-to-r from-pink-500 via-rose-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold py-3 px-6 rounded-2xl shadow-xl transform active:scale-95 transition-all duration-150 border-b-4 border-pink-900 focus:outline-none focus:ring-2 focus:ring-pink-400;
+}
+
+.btn-game-yellow {
+  @apply bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 text-slate-950 font-black py-3.5 px-7 rounded-2xl shadow-xl transform active:scale-95 transition-all duration-150 border-b-4 border-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-300;
+}
+
+.btn-game-green {
+  @apply bg-gradient-to-r from-emerald-400 to-teal-600 hover:from-emerald-500 hover:to-teal-700 text-white font-bold py-3 px-6 rounded-2xl shadow-xl transform active:scale-95 transition-all duration-150 border-b-4 border-emerald-900;
+}
+
+/* Ambient glow background for TV and mobile */
+.party-bg-ambient {
+  background: 
+    radial-gradient(circle at 15% 15%, rgba(99, 102, 241, 0.12) 0%, transparent 45%),
+    radial-gradient(circle at 85% 85%, rgba(236, 72, 153, 0.12) 0%, transparent 45%),
+    radial-gradient(circle at 50% 50%, rgba(245, 158, 11, 0.05) 0%, transparent 60%),
+    #0B0F19;
+}
+
+/* Glass & Card styles */
+.glass-panel {
+  background: rgba(18, 24, 38, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-panel-tv {
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 2px solid rgba(99, 102, 241, 0.25);
+}
+
+/* Custom sleek scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.4);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.7);
+}

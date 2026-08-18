@@ -1,0 +1,17 @@
+{
+  "name": "party-draw-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w @party-draw/server\" \"npm run dev -w @party-draw/web\"",
+    "build": "npm run build -w @party-draw/shared && npm run build -w @party-draw/server && npm run build -w @party-draw/web",
+    "start": "npm run start -w @party-draw/server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
