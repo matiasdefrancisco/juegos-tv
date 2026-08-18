@@ -3,6 +3,7 @@ import {
   CLIENT_EVENTS,
   CreateGamePayload,
   DrawWordPayload,
+  GameSettings,
   GameStatus,
   JoinGamePayload,
   PlayerGuessedPayload,
