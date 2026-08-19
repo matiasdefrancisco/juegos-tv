@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
 import { ArrowRight, Smartphone, Sparkles, Tv } from 'lucide-react';
 import { Header } from '../components/common/Header';
 import { Screen, ScreenContent } from '../components/common/Screen';
@@ -35,14 +34,12 @@ export const Home: React.FC<HomeProps> = ({ onNavigateToTV, onNavigateToJoin }) 
         <div className="space-y-7 text-center py-2">
           {/* Presentación */}
           <div className="space-y-3">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="inline-flex items-center gap-2 bg-gradient-to-r from-amber-500/20 via-pink-500/20 to-indigo-500/20 border border-amber-500/30 px-4 py-2 rounded-full text-amber-300 font-bold text-[11px] sm:text-sm shadow-xl"
+            <div
+              className="anim-pop inline-flex items-center gap-2 bg-gradient-to-r from-amber-500/20 via-pink-500/20 to-indigo-500/20 border border-amber-500/30 px-4 py-2 rounded-full text-amber-300 font-bold text-[11px] sm:text-sm shadow-xl"
             >
               <Sparkles size={15} className="flex-shrink-0" />
               <span>EL PARTY GAME DE DIBUJO Y ADIVINANZA</span>
-            </motion.div>
+            </div>
 
             <h1 className="tv-title font-black font-game text-white tracking-tight">
               ¡Dibujá en tu celu,
@@ -61,10 +58,8 @@ export const Home: React.FC<HomeProps> = ({ onNavigateToTV, onNavigateToJoin }) 
           {/* Opciones */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
             {/* Pantalla principal */}
-            <motion.div
-              whileHover={{ scale: 1.015 }}
-              whileTap={{ scale: 0.99 }}
-              className="bg-slate-900/90 border-2 border-indigo-500/40 hover:border-indigo-400 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col gap-5 text-left transition-colors"
+            <div
+              className="anim-pop bg-slate-900/90 border-2 border-indigo-500/40 hover:border-indigo-400 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col gap-5 text-left transition-colors"
             >
               <div className="space-y-2.5">
                 <div className="w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
@@ -87,13 +82,11 @@ export const Home: React.FC<HomeProps> = ({ onNavigateToTV, onNavigateToJoin }) 
                 <span>{connected ? 'CREAR PARTIDA (TV)' : 'CONECTANDO...'}</span>
                 <ArrowRight size={20} />
               </button>
-            </motion.div>
+            </div>
 
             {/* Unirse */}
-            <motion.div
-              whileHover={{ scale: 1.015 }}
-              whileTap={{ scale: 0.99 }}
-              className="bg-slate-900/90 border-2 border-pink-500/40 hover:border-pink-400 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col gap-5 text-left transition-colors"
+            <div
+              className="anim-pop bg-slate-900/90 border-2 border-pink-500/40 hover:border-pink-400 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col gap-5 text-left transition-colors"
             >
               <div className="space-y-2.5">
                 <div className="w-12 h-12 rounded-2xl bg-pink-500/20 border border-pink-500/30 flex items-center justify-center text-pink-400">
@@ -134,7 +127,7 @@ export const Home: React.FC<HomeProps> = ({ onNavigateToTV, onNavigateToJoin }) 
                   UNIRME DESDE EL CELULAR
                 </button>
               </form>
-            </motion.div>
+            </div>
           </div>
 
           <p className="text-slate-600 text-xs sm:text-sm font-medium safe-bottom">

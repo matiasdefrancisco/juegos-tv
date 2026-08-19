@@ -44,20 +44,16 @@ interface StrokeBuffer {
   isNewStroke: boolean;
 }
 
-interface SocketContextValue {
-  socket: Socket | null;
-  connected: boolean;
-  gameState: PublicGameState | null;
-  player: Player | null;
-  team: Team | null;
-  gameCode: string | null;
-  secretWord: Word | null;
-  activeStrokes: Stroke[];
-  lastGuessFeedback: GuessFeedbackPayload | null;
-  countdown: number | null;
-  error: string | null;
-  isHost: boolean;
-
+/**
+ * El contexto está partido en cuatro a propósito.
+ *
+ * Con un único contexto, cada GAME_STATE_UPDATE (que llega varias veces por
+ * ronda) re-renderizaba todo el árbol, incluido el lienzo. Separando por ritmo
+ * de cambio, cada componente se suscribe solo a lo que mira de verdad:
+ * las acciones no cambian nunca, la conexión casi nunca, los trazos cambian
+ * durante el dibujo y el estado de partida en cada evento.
+ */
+export interface SocketActions {
   createGame: (settings?: Partial<GameSettings>) => void;
   updateSettings: (settings: Partial<GameSettings>) => void;
   joinGame: (gameCode: string, name: string, avatar?: string, color?: string) => void;
@@ -81,7 +77,33 @@ interface SocketContextValue {
   requestSync: () => void;
 }
 
-const SocketContext = createContext<SocketContextValue | null>(null);
+export interface SocketConnection {
+  socket: Socket | null;
+  connected: boolean;
+}
+
+export interface CanvasValue {
+  activeStrokes: Stroke[];
+}
+
+export interface GameStateValue {
+  gameState: PublicGameState | null;
+  player: Player | null;
+  team: Team | null;
+  gameCode: string | null;
+  secretWord: Word | null;
+  lastGuessFeedback: GuessFeedbackPayload | null;
+  countdown: number | null;
+  error: string | null;
+  isHost: boolean;
+}
+
+export type SocketContextValue = SocketActions & SocketConnection & CanvasValue & GameStateValue;
+
+const SocketActionsContext = createContext<SocketActions | null>(null);
+const SocketConnectionContext = createContext<SocketConnection | null>(null);
+const CanvasContext = createContext<CanvasValue | null>(null);
+const GameStateContext = createContext<GameStateValue | null>(null);
 
 function getServerUrl(): string {
   if (import.meta.env.VITE_SERVER_URL) {
@@ -549,22 +571,13 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [gameState, player?.teamId]
   );
 
-  // El value se memoiza: sin esto, cada render del provider re-renderizaba
-  // todo el árbol de la partida aunque no hubiera cambiado nada.
-  const value = useMemo<SocketContextValue>(
+  /**
+   * Las acciones se memoizan aparte y no cambian nunca: todas son useCallback
+   * con dependencias vacías que leen el socket por ref. Un componente que solo
+   * dispara acciones (un botón) deja de re-renderizarse con cada estado.
+   */
+  const actions = useMemo<SocketActions>(
     () => ({
-      socket,
-      connected,
-      gameState,
-      player,
-      team,
-      gameCode,
-      secretWord,
-      activeStrokes,
-      lastGuessFeedback,
-      countdown,
-      error,
-      isHost,
       createGame,
       updateSettings,
       joinGame,
@@ -582,18 +595,6 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       requestSync
     }),
     [
-      socket,
-      connected,
-      gameState,
-      player,
-      team,
-      gameCode,
-      secretWord,
-      activeStrokes,
-      lastGuessFeedback,
-      countdown,
-      error,
-      isHost,
       createGame,
       updateSettings,
       joinGame,
@@ -612,13 +613,83 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     ]
   );
 
-  return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;
+  /** Conexión: cambia solo al conectar o desconectar */
+  const connection = useMemo<SocketConnection>(
+    () => ({ socket, connected }),
+    [socket, connected]
+  );
+
+  /**
+   * El lienzo va en su propio contexto: los trazos cambian a otro ritmo que el
+   * estado de partida, y el canvas no debe re-renderizar por un cambio de
+   * puntaje ni al revés.
+   */
+  const canvas = useMemo<CanvasValue>(() => ({ activeStrokes }), [activeStrokes]);
+
+  const gameValue = useMemo<GameStateValue>(
+    () => ({
+      gameState,
+      player,
+      team,
+      gameCode,
+      secretWord,
+      lastGuessFeedback,
+      countdown,
+      error,
+      isHost
+    }),
+    [gameState, player, team, gameCode, secretWord, lastGuessFeedback, countdown, error, isHost]
+  );
+
+  return (
+    <SocketActionsContext.Provider value={actions}>
+      <SocketConnectionContext.Provider value={connection}>
+        <CanvasContext.Provider value={canvas}>
+          <GameStateContext.Provider value={gameValue}>{children}</GameStateContext.Provider>
+        </CanvasContext.Provider>
+      </SocketConnectionContext.Provider>
+    </SocketActionsContext.Provider>
+  );
 };
 
-export function useSocket() {
-  const context = useContext(SocketContext);
-  if (!context) {
-    throw new Error('useSocket must be used within a SocketProvider');
-  }
-  return context;
+function useRequired<T>(context: React.Context<T | null>, nombre: string): T {
+  const value = useContext(context);
+  if (!value) throw new Error(`${nombre} debe usarse dentro de <SocketProvider>`);
+  return value;
+}
+
+/** Solo las acciones. No provoca renders cuando cambia el estado de partida. */
+export function useSocketActions(): SocketActions {
+  return useRequired(SocketActionsContext, 'useSocketActions');
+}
+
+/** Estado del socket (conectado o no) y la instancia. */
+export function useSocketConnection(): SocketConnection {
+  return useRequired(SocketConnectionContext, 'useSocketConnection');
+}
+
+/** Solo los trazos del lienzo. */
+export function useCanvasStrokes(): CanvasValue {
+  return useRequired(CanvasContext, 'useCanvasStrokes');
+}
+
+/** Solo el estado de la partida. */
+export function useGameState(): GameStateValue {
+  return useRequired(GameStateContext, 'useGameState');
+}
+
+/**
+ * Todo junto. Cómodo para pantallas que igual dependen de casi todo;
+ * los componentes sensibles al rendimiento usan los hooks específicos.
+ */
+export function useSocket(): SocketContextValue {
+  const actions = useSocketActions();
+  const connection = useSocketConnection();
+  const { activeStrokes } = useCanvasStrokes();
+  const game = useGameState();
+
+  return useMemo(
+    () => ({ ...actions, ...connection, ...game, activeStrokes }),
+    [actions, connection, game, activeStrokes]
+  );
 }

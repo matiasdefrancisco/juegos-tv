@@ -109,6 +109,38 @@ export function drawDot(
   ctx.fill();
 }
 
+/**
+ * Traza un lote entero de puntos en un solo path.
+ *
+ * Importa en TV: un `beginPath()/stroke()` por punto satura la GPU de un
+ * televisor. Con un único path por lote el costo baja de ~20 llamadas por
+ * mensaje a una sola.
+ */
+export function drawPolyline(
+  ctx: CanvasRenderingContext2D,
+  from: StrokePoint,
+  points: StrokePoint[],
+  color: string,
+  normalizedWidth: number,
+  isEraser: boolean,
+  w: number,
+  h: number
+): void {
+  if (points.length === 0) return;
+
+  ctx.beginPath();
+  ctx.strokeStyle = isEraser ? CANVAS_BACKGROUND : color;
+  ctx.lineWidth = lineWidthFor(normalizedWidth, w, h);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  ctx.moveTo(from.x * w, from.y * h);
+  for (const point of points) {
+    ctx.lineTo(point.x * w, point.y * h);
+  }
+  ctx.stroke();
+}
+
 /** Segmento entre dos puntos consecutivos, para el trazado en vivo */
 export function drawSegment(
   ctx: CanvasRenderingContext2D,

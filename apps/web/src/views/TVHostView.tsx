@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
   GameStatus,
   PlayerGuessedPayload,
@@ -7,7 +6,7 @@ import {
   TeamAnsweredPayload
 } from '@party-draw/shared';
 import { Header } from '../components/common/Header';
-import { Screen } from '../components/common/Screen';
+import { TVStage, STAGE_SAFE_INSET } from '../components/tv/TVStage';
 import { TVLobby } from '../components/tv/TVLobby';
 import { TVHeader } from '../components/tv/TVHeader';
 import { TVCanvas } from '../components/tv/TVCanvas';
@@ -39,7 +38,6 @@ export const TVHostView: React.FC = () => {
     toastTimersRef.current.push(timer);
   }, []);
 
-  // Si se entró directo a /tv sin sala, se crea una apenas haya conexión
   useEffect(() => {
     if (!connected || gameState) return;
 
@@ -93,29 +91,29 @@ export const TVHostView: React.FC = () => {
     if (gameState?.status !== GameStatus.DRAWING) setToasts([]);
   }, [gameState?.status]);
 
-  // ---------------- Estados sin partida ----------------
+  // ---------------- Sin partida todavía ----------------
   if (!gameState) {
     return (
-      <Screen header={<Header connected={connected} isTV />}>
-        <div className="min-h-full flex flex-col items-center justify-center gap-5 text-center p-6">
+      <TVStage>
+        <div className="w-full h-full flex flex-col items-center justify-center gap-8 text-center px-24">
           {connected ? (
             <>
-              <div className="w-14 h-14 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-              <p className="tv-subtitle font-game text-slate-300">
+              <div className="w-24 h-24 border-8 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-4xl font-game text-slate-300">
                 {waitedTooLong ? 'Creando una sala nueva...' : 'Iniciando pantalla de TV...'}
               </p>
             </>
           ) : (
             <>
-              <WifiOff size={48} className="text-rose-400 animate-pulse" />
-              <p className="tv-subtitle font-game text-slate-300">Conectando con el servidor...</p>
-              <p className="text-slate-500 text-sm max-w-md">
+              <WifiOff size={96} className="text-rose-400" />
+              <p className="text-4xl font-game text-slate-300">Conectando con el servidor...</p>
+              <p className="text-slate-500 text-2xl max-w-3xl">
                 Si tarda mucho, revisá que el backend esté encendido y accesible desde esta red.
               </p>
             </>
           )}
         </div>
-      </Screen>
+      </TVStage>
     );
   }
 
@@ -123,162 +121,62 @@ export const TVHostView: React.FC = () => {
   const turnTeam = gameState.teams.find((t) => t.id === gameState.currentTeamId);
 
   return (
-    <Screen header={<Header gameCode={gameCode} connected={connected} isTV />}>
-      <div className="relative min-h-full flex flex-col">
-        {/* Cuenta regresiva (anuncia la carta especial si toca) */}
-        <AnimatePresence>
-          {countdown !== null && (
-            <motion.div
-              key={`countdown-${countdown}`}
-              initial={{ scale: 1.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.5, opacity: 0 }}
-              className={`fixed inset-0 z-50 flex flex-col items-center justify-center backdrop-blur-lg px-6 text-center ${
-                isAllPlay ? 'bg-amber-950/90' : 'bg-slate-950/85'
-              }`}
-            >
-              {isAllPlay ? (
-                <>
-                  <motion.div
-                    initial={{ rotate: -8, scale: 0.85 }}
-                    animate={{ rotate: 0, scale: 1 }}
-                    transition={{ type: 'spring', stiffness: 220, damping: 12 }}
-                    className="bg-gradient-to-r from-amber-400 via-pink-500 to-indigo-500 p-1 rounded-3xl shadow-2xl mb-4 max-w-full"
-                  >
-                    <div className="bg-slate-950 px-6 sm:px-10 py-4 rounded-[20px] flex items-center gap-3">
-                      <Sparkles className="text-amber-400 flex-shrink-0" size={32} />
-                      <span className="tv-title font-black font-game text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-pink-500 to-indigo-400">
-                        ¡JUEGAN TODOS!
-                      </span>
-                    </div>
-                  </motion.div>
-                  <p className="text-base sm:text-2xl font-bold font-game text-amber-200 mb-2 max-w-2xl">
-                    Dibuja uno, adivinan todos los equipos. ¡El primero que acierte se lleva los
-                    puntos!
-                  </p>
-                </>
-              ) : (
-                <span className="text-xl sm:text-3xl font-black font-game text-amber-400 uppercase tracking-widest mb-3">
-                  {turnTeam ? `TURNO DE ${turnTeam.name.toUpperCase()}` : '¡PREPARATE PARA DIBUJAR!'}
-                </span>
-              )}
+    <TVStage>
+      {/* Barra superior: alto fijo, forma parte del reparto vertical */}
+      <div className="flex-none h-[96px]">
+        <Header gameCode={gameCode} connected={connected} isTV />
+      </div>
 
-              <div className="tv-countdown font-game font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-pink-500 to-indigo-400">
-                {countdown}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+      {/* Zona de contenido: exactamente el alto restante, nunca desborda */}
+      <div
+        className="relative flex-1 min-h-0 flex flex-col"
+        style={{ padding: `${STAGE_SAFE_INSET / 2}px ${STAGE_SAFE_INSET}px ${STAGE_SAFE_INSET}px` }}
+      >
+        {gameState.status === GameStatus.WAITING && <TVLobby />}
 
-        <AnimatePresence mode="wait">
-          {gameState.status === GameStatus.WAITING && (
-            <motion.div
-              key="waiting"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col"
-            >
-              <TVLobby />
-            </motion.div>
-          )}
+        {gameState.status === GameStatus.COUNTDOWN && (
+          <div className="flex-1 flex items-center justify-center">
+            <p className="tv-heading text-6xl font-game text-slate-400">Comenzando el turno...</p>
+          </div>
+        )}
 
-          {gameState.status === GameStatus.COUNTDOWN && (
-            <motion.div
-              key="countdown-placeholder"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col items-center justify-center gap-4 p-8 min-h-[50vh]"
-            >
-              <p className="tv-title font-game text-slate-400 animate-pulse text-center">
-                Comenzando el turno...
-              </p>
-            </motion.div>
-          )}
-
-          {gameState.status === GameStatus.DRAWING && (
-            <motion.div
-              key="drawing"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 w-full max-w-7xl mx-auto flex flex-col gap-3 px-4 sm:px-6 py-4"
-            >
+        {gameState.status === GameStatus.DRAWING && (
+          <div className="flex-1 min-h-0 flex flex-col gap-5">
+            <div className="flex-none">
               <TVHeader />
-              {/* El lienzo crece con la pantalla pero nunca colapsa */}
-              <div className="flex-1 min-h-[clamp(240px,48vh,720px)] w-full">
-                <TVCanvas />
-              </div>
-            </motion.div>
-          )}
+            </div>
+            <div className="flex-1 min-h-0">
+              <TVCanvas />
+            </div>
+          </div>
+        )}
 
-          {gameState.status === GameStatus.ROUND_RESULT && (
-            <motion.div
-              key="round_result"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col"
-            >
-              <TVRoundResult />
-            </motion.div>
-          )}
+        {gameState.status === GameStatus.ROUND_RESULT && <TVRoundResult />}
+        {gameState.status === GameStatus.SCOREBOARD && <TVScoreboard />}
+        {gameState.status === GameStatus.GAME_OVER && <TVGameOver />}
 
-          {gameState.status === GameStatus.SCOREBOARD && (
-            <motion.div
-              key="scoreboard"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col"
-            >
-              <TVScoreboard />
-            </motion.div>
-          )}
-
-          {gameState.status === GameStatus.GAME_OVER && (
-            <motion.div
-              key="game_over"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col"
-            >
-              <TVGameOver />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Avisos en vivo */}
-        <div className="fixed bottom-4 right-4 z-40 flex flex-col gap-2 pointer-events-none max-w-[min(92vw,26rem)]">
-          <AnimatePresence>
+        {/* Aciertos en vivo */}
+        <div className="absolute bottom-10 right-12 z-40 flex flex-col gap-3 pointer-events-none w-[620px] max-w-full overflow-hidden">
             {toasts.map((toast) => (
-              <motion.div
+              <div
                 key={toast.id}
-                layout
-                initial={{ x: 80, opacity: 0, scale: 0.9 }}
-                animate={{ x: 0, opacity: 1, scale: 1 }}
-                exit={{ x: 80, opacity: 0 }}
-                className={`px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2.5 border font-game font-black text-sm sm:text-base ${
+                className={`anim-slide-left w-full px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-4 border font-game font-black text-2xl min-w-0 ${
                   toast.kind === 'guess'
-                    ? 'bg-emerald-500/95 text-slate-950 border-emerald-300/60'
-                    : 'bg-slate-900/95 text-white border-slate-600'
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-300'
+                    : 'bg-slate-900 text-white border-slate-600'
                 }`}
                 style={
-                  toast.kind === 'team' && toast.color
-                    ? { borderColor: toast.color }
-                    : undefined
+                  toast.kind === 'team' && toast.color ? { borderColor: toast.color } : undefined
                 }
               >
                 {toast.kind === 'guess' ? (
-                  <CheckCircle size={20} className="flex-shrink-0" />
+                  <CheckCircle size={28} className="flex-shrink-0" />
                 ) : (
-                  <Send size={18} className="flex-shrink-0" style={{ color: toast.color }} />
+                  <Send size={26} className="flex-shrink-0" style={{ color: toast.color }} />
                 )}
-                <span className="truncate">{toast.title}</span>
+                <span className="truncate min-w-0 flex-1">{toast.title}</span>
                 <span
-                  className={`px-2 py-0.5 rounded-lg text-xs font-mono font-bold flex-shrink-0 ${
+                  className={`px-3 py-1 rounded-lg text-lg font-mono font-bold flex-shrink-0 ${
                     toast.kind === 'guess'
                       ? 'bg-slate-950 text-emerald-400'
                       : 'bg-slate-800 text-slate-300'
@@ -286,11 +184,47 @@ export const TVHostView: React.FC = () => {
                 >
                   {toast.detail}
                 </span>
-              </motion.div>
+              </div>
             ))}
-          </AnimatePresence>
         </div>
       </div>
-    </Screen>
+
+      {/* Cuenta regresiva: cubre el escenario entero */}
+        {countdown !== null && (
+          /* Un solo elemento para toda la cuenta: solo cambia el número de
+             adentro. Antes se montaba un overlay por segundo y en una TV lenta
+             quedaban apilados tapando la pantalla. */
+          <div
+            className={`anim-fade absolute inset-0 z-50 flex flex-col items-center justify-center px-24 text-center ${
+              isAllPlay ? 'bg-amber-950' : 'bg-slate-950'
+            }`}
+          >
+            {isAllPlay ? (
+              <>
+                <div className="bg-gradient-to-r from-amber-400 via-pink-500 to-indigo-500 p-1.5 rounded-3xl shadow-2xl mb-8">
+                  <div className="bg-slate-950 px-14 py-6 rounded-[22px] flex items-center gap-5">
+                    <Sparkles className="text-amber-400 flex-shrink-0" size={56} />
+                    <span className="text-7xl font-black font-game text-gradient-party">
+                      ¡JUEGAN TODOS!
+                    </span>
+                  </div>
+                </div>
+                <p className="text-4xl font-bold font-game text-amber-200 mb-4 max-w-4xl">
+                  Dibuja uno, adivinan todos. ¡El primero que acierte se lleva los puntos!
+                </p>
+              </>
+            ) : (
+              <span className="text-5xl leading-tight py-1 font-black font-game text-amber-400 uppercase tracking-widest mb-6">
+                {turnTeam ? `Turno de ${turnTeam.name}` : '¡Preparate para dibujar!'}
+              </span>
+            )}
+
+            {/* tv-heading: Fredoka se sale de su caja en tamaños enormes */}
+            <div className="tv-heading text-[13rem] font-game font-black text-gradient-party">
+              {countdown}
+            </div>
+          </div>
+        )}
+    </TVStage>
   );
 };

@@ -1,5 +1,4 @@
 import React from 'react';
-import { motion } from 'framer-motion';
 import { GameMode, getCategoryLabel } from '@party-draw/shared';
 import { CheckCircle2 } from 'lucide-react';
 import { useSocket } from '../../context/SocketContext';
@@ -30,10 +29,8 @@ export const MobileResults: React.FC = () => {
   return (
     <div className="w-full max-w-md mx-auto px-4 py-4 flex flex-col gap-4 min-h-full text-center safe-bottom">
       {/* Palabra revelada */}
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="space-y-1.5 flex-shrink-0"
+      <div
+        className="anim-pop space-y-1.5 flex-shrink-0"
       >
         <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
           La palabra era · {getCategoryLabel(result?.category)}
@@ -45,14 +42,11 @@ export const MobileResults: React.FC = () => {
             </h3>
           </div>
         </div>
-      </motion.div>
+      </div>
 
       {/* Resultado personal */}
-      <motion.div
-        initial={{ y: 16, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.15 }}
-        className="panel p-5 space-y-3.5 flex-shrink-0"
+      <div
+        className="anim-slide-up panel p-5 space-y-3.5 flex-shrink-0"
       >
         <div className="space-y-1">
           {earnedPoints > 0 ? (
@@ -109,7 +103,7 @@ export const MobileResults: React.FC = () => {
             </span>
           </div>
         </div>
-      </motion.div>
+      </div>
 
       {/* Detalle de respuestas por equipo */}
       {isTeamMode && result?.teamAnswers && result.teamAnswers.length > 0 && (

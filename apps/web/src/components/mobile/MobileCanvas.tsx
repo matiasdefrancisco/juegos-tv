@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { DRAWING_PALETTE, Stroke, StrokePoint } from '@party-draw/shared';
 import { Eraser, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
-import { useSocket } from '../../context/SocketContext';
+import { useCanvasStrokes, useSocketActions } from '../../context/SocketContext';
 import {
   clearCanvas as clearCanvasSurface,
   drawDot,
@@ -25,7 +25,8 @@ const BRUSH_SIZES = [
 ];
 
 export const MobileCanvas: React.FC<MobileCanvasProps> = ({ wordText, category }) => {
-  const { sendStrokePoint, sendStrokeEnd, clearCanvas, undoStroke, activeStrokes } = useSocket();
+  const { sendStrokePoint, sendStrokeEnd, clearCanvas, undoStroke } = useSocketActions();
+  const { activeStrokes } = useCanvasStrokes();
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);

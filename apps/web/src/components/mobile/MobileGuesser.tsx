@@ -10,8 +10,7 @@ import {
   Timer,
   X
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import confetti from 'canvas-confetti';
+import { celebrateGuess } from '../../utils/celebrate';
 import { GameMode, getCategoryLabel, RoundMode } from '@party-draw/shared';
 import { useSocket } from '../../context/SocketContext';
 
@@ -53,7 +52,7 @@ export const MobileGuesser: React.FC = () => {
 
   useEffect(() => {
     if (!hasGuessed) return;
-    confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
+    celebrateGuess();
   }, [hasGuessed]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -186,26 +185,19 @@ export const MobileGuesser: React.FC = () => {
 
       {/* Devolución */}
       <div className="flex-1 flex items-center justify-center py-2 min-h-[120px]">
-        <AnimatePresence mode="wait">
           {hasGuessed ? (
-            <motion.div
-              key="guessed"
-              initial={{ scale: 0.85, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="bg-emerald-500/20 border-2 border-emerald-500/60 p-5 rounded-3xl text-center space-y-2.5 shadow-2xl w-full"
+            <div
+              className="anim-pop bg-emerald-500/20 border-2 border-emerald-500/60 p-5 rounded-3xl text-center space-y-2.5 shadow-2xl w-full"
             >
               <CheckCircle2 size={48} className="text-emerald-400 mx-auto animate-bounce" />
               <h3 className="text-2xl font-black font-game text-white">¡ADIVINASTE!</h3>
               <p className="text-emerald-300 text-sm font-semibold">
                 {team ? `${team.name} suma ` : 'Sumaste '}+{player?.currentRoundScore || 0} puntos.
               </p>
-            </motion.div>
+            </div>
           ) : observing ? (
-            <motion.div
-              key="observing"
-              initial={{ scale: 0.92, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="panel-soft p-5 rounded-3xl text-center space-y-2.5 w-full"
+            <div
+              className="anim-pop panel-soft p-5 rounded-3xl text-center space-y-2.5 w-full"
             >
               <Eye size={40} className="text-slate-400 mx-auto" />
               <h3 className="text-lg font-black font-game text-white">Estás observando</h3>
@@ -222,40 +214,31 @@ export const MobileGuesser: React.FC = () => {
                   'Mirá la TV: en un rato te toca a vos.'
                 )}
               </p>
-            </motion.div>
+            </div>
           ) : teamClosed || noAttempts ? (
-            <motion.div
-              key="team-closed"
-              initial={{ scale: 0.92, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="bg-slate-900/90 border-2 border-slate-700 p-5 rounded-3xl text-center space-y-2.5 w-full"
+            <div
+              className="anim-pop bg-slate-900/90 border-2 border-slate-700 p-5 rounded-3xl text-center space-y-2.5 w-full"
             >
               <Target size={38} className="text-slate-400 mx-auto" />
               <h3 className="text-lg font-black font-game text-white">Turno cerrado</h3>
               <p className="text-slate-400 text-sm font-medium">
                 Tu equipo usó todos sus intentos. Esperá el resultado en la TV.
               </p>
-            </motion.div>
+            </div>
           ) : alreadyAnswered ? (
-            <motion.div
-              key="answered"
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="bg-purple-500/15 border-2 border-purple-500/50 p-5 rounded-3xl text-center space-y-2.5 w-full"
+            <div
+              className="anim-pop bg-purple-500/15 border-2 border-purple-500/50 p-5 rounded-3xl text-center space-y-2.5 w-full"
             >
               <Dices size={40} className="text-purple-300 mx-auto animate-pulse" />
               <h3 className="text-xl font-black font-game text-white">¡Respuesta enviada!</h3>
               <p className="text-purple-200 text-sm font-medium">
                 Se revela cuando respondan todos. Mirá la TV.
               </p>
-            </motion.div>
+            </div>
           ) : lastGuessFeedback ? (
-            <motion.div
+            <div
               key={`fb-${lastGuessFeedback.message}-${lastGuessFeedback.isClose}`}
-              initial={{ y: 8, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className={`p-4 rounded-2xl text-center font-bold text-sm border shadow-xl w-full ${
+              className={`anim-slide-up p-4 rounded-2xl text-center font-bold text-sm border shadow-xl w-full ${
                 lastGuessFeedback.throttled
                   ? 'bg-slate-900/90 border-slate-700 text-slate-400'
                   : lastGuessFeedback.isClose
@@ -267,13 +250,10 @@ export const MobileGuesser: React.FC = () => {
                 <AlertCircle className="inline mr-2 text-amber-400" size={18} />
               )}
               <span>{lastGuessFeedback.message}</span>
-            </motion.div>
+            </div>
           ) : (
-            <motion.div
-              key="idle"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-center text-slate-400 text-sm space-y-2.5 px-4"
+            <div
+              className="anim-fade text-center text-slate-400 text-sm space-y-2.5 px-4"
             >
               <Sparkles className="mx-auto text-indigo-400 opacity-70 animate-pulse" size={32} />
               <p className="font-medium text-slate-300">
@@ -286,9 +266,8 @@ export const MobileGuesser: React.FC = () => {
                   Ojo: tenés un solo intento
                 </p>
               )}
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
       </div>
 
       {/* Entrada */}

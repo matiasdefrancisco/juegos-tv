@@ -1,14 +1,19 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { useSocket } from '../../context/SocketContext';
-import { SERVER_EVENTS, Stroke, StrokePoint } from '@party-draw/shared';
-import { drawDot, drawSegment, fitCanvasToContainer, redrawStrokes } from '../../utils/canvasDraw';
+import { useCanvasStrokes, useSocketConnection } from '../../context/SocketContext';
+import { SERVER_EVENTS, Stroke, StrokePoint, StrokeReceivedPayload } from '@party-draw/shared';
+import { drawDot, drawPolyline, fitCanvasToContainer, redrawStrokes } from '../../utils/canvasDraw';
 
 interface TVCanvasProps {
   className?: string;
 }
 
-export const TVCanvas: React.FC<TVCanvasProps> = ({ className = '' }) => {
-  const { socket, activeStrokes } = useSocket();
+/**
+ * Se suscribe solo a la conexión y a los trazos: un cambio de puntaje o de
+ * turno no tiene por qué re-renderizar el lienzo.
+ */
+const TVCanvasBase: React.FC<TVCanvasProps> = ({ className = '' }) => {
+  const { socket } = useSocketConnection();
+  const { activeStrokes } = useCanvasStrokes();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastPointRef = useRef<StrokePoint | null>(null);
@@ -61,13 +66,7 @@ export const TVCanvas: React.FC<TVCanvasProps> = ({ className = '' }) => {
   useEffect(() => {
     if (!socket) return;
 
-    const handleStrokeReceived = (data: {
-      point: StrokePoint;
-      color: string;
-      width: number;
-      isEraser: boolean;
-      isNewStroke: boolean;
-    }) => {
+    const handleStrokeReceived = (data: StrokeReceivedPayload) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
@@ -76,14 +75,30 @@ export const TVCanvas: React.FC<TVCanvasProps> = ({ className = '' }) => {
       const { width: w, height: h } = sizeRef.current;
       if (w === 0 || h === 0) return;
 
-      if (data.isNewStroke || !lastPointRef.current) {
-        drawDot(ctx, data.point, data.color, data.width, data.isEraser, w, h);
-        lastPointRef.current = data.point;
-        return;
+      const points = data.points;
+      if (!points || points.length === 0) return;
+
+      let from = data.isNewStroke ? null : lastPointRef.current;
+
+      // Un punto suelto al abrir el trazo se pinta como redondel
+      if (!from) {
+        drawDot(ctx, points[0], data.color, data.width, data.isEraser, w, h);
+        from = points[0];
       }
 
-      drawSegment(ctx, lastPointRef.current, data.point, data.color, data.width, data.isEraser, w, h);
-      lastPointRef.current = data.point;
+      // Todo el lote en un solo path: una TV no aguanta un stroke() por punto
+      drawPolyline(
+        ctx,
+        from,
+        points,
+        data.color,
+        data.width,
+        data.isEraser,
+        w,
+        h
+      );
+
+      lastPointRef.current = points[points.length - 1];
     };
 
     const handleCanvasCleared = () => {
@@ -110,3 +125,6 @@ export const TVCanvas: React.FC<TVCanvasProps> = ({ className = '' }) => {
     </div>
   );
 };
+
+/** memo: el padre se re-renderiza en cada estado, el lienzo no necesita seguirlo */
+export const TVCanvas = React.memo(TVCanvasBase);

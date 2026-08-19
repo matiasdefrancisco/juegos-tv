@@ -1,5 +1,4 @@
 import React, { useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -64,29 +63,24 @@ export const Modal: React.FC<ModalProps> = ({
     if (open) panelRef.current?.focus();
   }, [open]);
 
+  if (!open) return null;
+
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm"
-          onClick={onClose}
-          role="presentation"
-        >
-          <motion.div
-            ref={panelRef}
-            tabIndex={-1}
-            initial={{ scale: 0.95, y: 12, opacity: 0 }}
-            animate={{ scale: 1, y: 0, opacity: 1 }}
-            exit={{ scale: 0.95, y: 12, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 320, damping: 28 }}
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            className={`w-full ${SIZES[size]} max-h-[90dvh] flex flex-col bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl outline-none overflow-hidden`}
-          >
+    <div
+      className="anim-fade fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-950/90"
+      onClick={onClose}
+      role="presentation"
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        /* max-h en % y no en dvh: dentro del escenario de TV el modal se
+           mide contra el escenario, no contra el viewport del navegador */
+        className={`anim-pop w-full ${SIZES[size]} max-h-[90%] flex flex-col bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl outline-none overflow-hidden`}
+      >
             {(title || subtitle) && (
               <header className="flex items-start justify-between gap-4 p-5 sm:p-6 border-b border-slate-800 flex-shrink-0">
                 <div className="min-w-0">
@@ -114,14 +108,12 @@ export const Modal: React.FC<ModalProps> = ({
             {/* Único bloque scrollable del modal */}
             <div className="scroll-area flex-1 p-5 sm:p-6">{children}</div>
 
-            {footer && (
-              <footer className="p-4 sm:p-5 border-t border-slate-800 bg-slate-900/95 flex-shrink-0">
-                {footer}
-              </footer>
-            )}
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+        {footer && (
+          <footer className="p-4 sm:p-5 border-t border-slate-800 bg-slate-900/95 flex-shrink-0">
+            {footer}
+          </footer>
+        )}
+      </div>
+    </div>
   );
 };

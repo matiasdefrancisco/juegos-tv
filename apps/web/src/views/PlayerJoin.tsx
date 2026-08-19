@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
 import { AlertCircle, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { PLAYER_COLORS } from '@party-draw/shared';
 import { Header } from '../components/common/Header';
@@ -55,10 +54,8 @@ export const PlayerJoin: React.FC<PlayerJoinProps> = ({ initialCode = '', onJoin
   return (
     <Screen header={<Header title="UNIRSE A PARTIDA" connected={connected} />}>
       <ScreenContent width="sm">
-        <motion.div
-          initial={{ y: 16, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="panel p-5 sm:p-6 space-y-5"
+        <div
+          className="anim-slide-up panel p-5 sm:p-6 space-y-5"
         >
           <div className="text-center space-y-1">
             <h2 className="text-xl sm:text-2xl font-black font-game text-white">¡Entrá al juego!</h2>
@@ -68,15 +65,13 @@ export const PlayerJoin: React.FC<PlayerJoinProps> = ({ initialCode = '', onJoin
           </div>
 
           {error && (
-            <motion.div
-              initial={{ scale: 0.97, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
+            <div
               role="alert"
-              className="bg-rose-500/20 border border-rose-500/50 p-3 rounded-2xl flex items-start gap-2 text-rose-300 text-xs font-semibold"
+              className="anim-pop bg-rose-500/20 border border-rose-500/50 p-3 rounded-2xl flex items-start gap-2 text-rose-300 text-xs font-semibold"
             >
               <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
               <span>{error}</span>
-            </motion.div>
+            </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -167,7 +162,7 @@ export const PlayerJoin: React.FC<PlayerJoinProps> = ({ initialCode = '', onJoin
               )}
             </div>
           </form>
-        </motion.div>
+        </div>
 
         <p className="text-center text-slate-600 text-xs font-medium pt-4 safe-bottom">
           Party Draw — No requiere descargar apps

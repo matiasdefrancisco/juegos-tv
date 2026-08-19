@@ -1,5 +1,4 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { GameMode, GameStatus, getCategoryLabel } from '@party-draw/shared';
 import { Trophy } from 'lucide-react';
 import { Header } from '../components/common/Header';
@@ -55,14 +54,9 @@ export const PlayerGame: React.FC = () => {
     >
       <div className={lockScroll ? 'h-full flex flex-col' : 'min-h-full flex flex-col'}>
         {/* Cuenta regresiva */}
-        <AnimatePresence>
           {countdown !== null && (
-            <motion.div
-              key={`m-countdown-${countdown}`}
-              initial={{ scale: 1.6, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.6, opacity: 0 }}
-              className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-md text-center p-6"
+            <div
+              className="anim-fade fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 text-center p-6"
             >
               {gameState.isAllPlayRound && !isDrawer && (
                 <span className="bg-gradient-to-r from-amber-400 to-pink-500 text-slate-950 font-black text-sm px-4 py-1.5 rounded-full mb-3">
@@ -79,30 +73,19 @@ export const PlayerGame: React.FC = () => {
               <div className="font-game font-black text-7xl sm:text-8xl text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-pink-500 to-indigo-400">
                 {countdown}
               </div>
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
-
-        <AnimatePresence mode="wait">
           {gameState.status === GameStatus.WAITING && (
-            <motion.div
-              key="mobile-waiting"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col"
+            <div
+              className="anim-fade flex-1 flex flex-col"
             >
               <MobileLobby />
-            </motion.div>
+            </div>
           )}
 
           {gameState.status === GameStatus.COUNTDOWN && (
-            <motion.div
-              key="mobile-countdown"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center min-h-[50vh]"
+            <div
+              className="anim-fade flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center min-h-[50vh]"
             >
               <span className="text-4xl animate-bounce" aria-hidden="true">
                 ⏳
@@ -116,16 +99,12 @@ export const PlayerGame: React.FC = () => {
                   ? '¡Atento! Le toca adivinar a tu equipo.'
                   : 'Tu equipo observa esta ronda.'}
               </p>
-            </motion.div>
+            </div>
           )}
 
           {isDrawing && (
-            <motion.div
-              key="mobile-drawing"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col min-h-0"
+            <div
+              className="anim-fade flex-1 flex flex-col min-h-0"
             >
               {isDrawer ? (
                 <MobileCanvas
@@ -135,29 +114,21 @@ export const PlayerGame: React.FC = () => {
               ) : (
                 <MobileGuesser />
               )}
-            </motion.div>
+            </div>
           )}
 
           {(gameState.status === GameStatus.ROUND_RESULT ||
             gameState.status === GameStatus.SCOREBOARD) && (
-            <motion.div
-              key="mobile-results"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col"
+            <div
+              className="anim-fade flex-1 flex flex-col"
             >
               <MobileResults />
-            </motion.div>
+            </div>
           )}
 
           {gameState.status === GameStatus.GAME_OVER && (
-            <motion.div
-              key="mobile-game-over"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col gap-4 p-5 max-w-md mx-auto w-full text-center justify-center safe-bottom"
+            <div
+              className="anim-pop flex-1 flex flex-col gap-4 p-5 max-w-md mx-auto w-full text-center justify-center safe-bottom"
             >
               <div className="space-y-2">
                 <Trophy size={48} className="text-amber-400 mx-auto animate-bounce" />
@@ -193,9 +164,8 @@ export const PlayerGame: React.FC = () => {
                   Esperando a que el anfitrión inicie otra partida...
                 </div>
               )}
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
       </div>
     </Screen>
   );

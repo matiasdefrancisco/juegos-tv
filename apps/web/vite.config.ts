@@ -36,7 +36,6 @@ export default defineConfig({
           if (!id.includes('node_modules')) return;
 
           if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react';
-          if (id.includes('framer-motion') || id.includes('motion-dom')) return 'motion';
           if (id.includes('socket.io') || id.includes('engine.io')) return 'realtime';
 
           return;

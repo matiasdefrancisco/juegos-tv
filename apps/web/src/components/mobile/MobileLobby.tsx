@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
 import { CATEGORIES, GameMode, getDifficultyMeta, RoundMode } from '@party-draw/shared';
 import { Crown, Settings, Sparkles, Users } from 'lucide-react';
 import { useSocket } from '../../context/SocketContext';
@@ -39,10 +38,8 @@ export const MobileLobby: React.FC = () => {
       </header>
 
       {/* Perfil */}
-      <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="panel p-5 space-y-3 text-center flex-shrink-0"
+      <div
+        className="anim-pop panel p-5 space-y-3 text-center flex-shrink-0"
       >
         <div
           className="w-16 h-16 rounded-2xl mx-auto flex items-center justify-center text-3xl shadow-lg border-2 border-white/30"
@@ -72,7 +69,7 @@ export const MobileLobby: React.FC = () => {
             {!isTeamMode && ` / ${settings.maxPlayers}`}
           </span>
         </div>
-      </motion.div>
+      </div>
 
       {/* Equipos o lista de jugadores */}
       {isTeamMode ? (
