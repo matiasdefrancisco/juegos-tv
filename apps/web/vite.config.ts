@@ -1,12 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@party-draw/shared': path.resolve(__dirname, '../../packages/shared/dist/index.js')
+      '@party-draw/shared': path.resolve(rootDir, '../../packages/shared/dist/index.js')
     }
   },
   server: {
@@ -23,11 +26,20 @@ export default defineConfig({
     chunkSizeWarningLimit: 700,
     rollupOptions: {
       output: {
-        // Separa lo que casi nunca cambia para aprovechar la caché entre deploys
-        manualChunks: {
-          react: ['react', 'react-dom'],
-          motion: ['framer-motion'],
-          realtime: ['socket.io-client']
+        /**
+         * Separa lo que casi nunca cambia para aprovechar la caché entre deploys.
+         *
+         * Tiene que ser una función: Vite 8 usa Rolldown, que a diferencia de
+         * Rollup no acepta la forma de objeto `{ chunk: [paquetes] }`.
+         */
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return;
+
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react';
+          if (id.includes('framer-motion') || id.includes('motion-dom')) return 'motion';
+          if (id.includes('socket.io') || id.includes('engine.io')) return 'realtime';
+
+          return;
         }
       }
     }
