@@ -4,26 +4,27 @@
 
 :root {
   color-scheme: dark;
-  --app-height: 100dvh;
 }
 
-html, body {
+html,
+body {
   margin: 0;
   padding: 0;
-  height: 100%;
-  height: 100dvh;
-  background-color: #0B0F19;
-  color: #F8FAFC;
-  font-family: 'Outfit', sans-serif;
+  min-height: 100%;
+  background-color: #0b0f19;
+  color: #f8fafc;
+  font-family: 'Outfit', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-touch-callout: none;
-  user-select: none;
-  overscroll-behavior: none;
-  overflow-x: hidden;
+  overscroll-behavior-y: none;
 }
 
-/* Safe area support for iOS Notch & Android gesture bars */
+#root {
+  min-height: 100dvh;
+}
+
+/* Áreas seguras de iOS y barras gestuales de Android */
 .safe-top {
   padding-top: max(env(safe-area-inset-top), 0.75rem);
 }
@@ -32,38 +33,129 @@ html, body {
   padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
 }
 
-/* Prevent accidental pull-to-refresh or gestures over canvas */
+/* ---------------------------------------------------------------------------
+   Layout base de pantallas
+
+   Regla del proyecto: ninguna pantalla usa `h-screen + overflow-hidden`.
+   El contenedor ocupa como mínimo el alto del viewport y el cuerpo scrollea
+   cuando el contenido no entra. Así nada queda inaccesible en notebooks.
+   --------------------------------------------------------------------------- */
+
+.screen-root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  /* Reserva por si el navegador no soporta dvh */
+  min-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  .screen-root {
+    min-height: 100dvh;
+  }
+}
+
+/* Cuerpo scrollable: min-height 0 es lo que permite encoger dentro de un flex */
+.screen-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Pantallas que no deben scrollear el cuerpo (lienzo de dibujo a pantalla completa) */
+.screen-body-fixed {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------------
+   Tipografía fluida para TV
+   Las pantallas grandes lucen enormes, pero en una notebook de 768px de alto
+   el mismo texto tapaba los controles. clamp() resuelve ambos extremos.
+   --------------------------------------------------------------------------- */
+
+.tv-display {
+  font-size: clamp(2.5rem, 7vw, 5.5rem);
+  line-height: 1.05;
+}
+
+.tv-title {
+  font-size: clamp(1.75rem, 4vw, 3.25rem);
+  line-height: 1.1;
+}
+
+.tv-subtitle {
+  font-size: clamp(0.95rem, 1.4vw, 1.35rem);
+  line-height: 1.4;
+}
+
+.tv-countdown {
+  font-size: clamp(6rem, 22vh, 16rem);
+  line-height: 1;
+}
+
+.tv-code {
+  font-size: clamp(2rem, 4.5vw, 3.5rem);
+  line-height: 1.1;
+}
+
+/* Evita el pull-to-refresh y gestos sobre el lienzo */
 canvas {
   touch-action: none;
 }
 
-/* Custom button styles with party depth & tactile feedback */
+/* ---------------------------------------------------------------------------
+   Botones
+   --------------------------------------------------------------------------- */
+
 .btn-game-primary {
-  @apply bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold py-3 px-6 rounded-2xl shadow-xl transform active:scale-95 transition-all duration-150 border-b-4 border-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-400;
+  @apply bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold py-3 px-6 rounded-2xl shadow-xl transform active:scale-95 transition-all duration-150 border-b-4 border-indigo-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950;
 }
 
 .btn-game-accent {
-  @apply bg-gradient-to-r from-pink-500 via-rose-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold py-3 px-6 rounded-2xl shadow-xl transform active:scale-95 transition-all duration-150 border-b-4 border-pink-900 focus:outline-none focus:ring-2 focus:ring-pink-400;
+  @apply bg-gradient-to-r from-pink-500 via-rose-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold py-3 px-6 rounded-2xl shadow-xl transform active:scale-95 transition-all duration-150 border-b-4 border-pink-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950;
 }
 
 .btn-game-yellow {
-  @apply bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 text-slate-950 font-black py-3.5 px-7 rounded-2xl shadow-xl transform active:scale-95 transition-all duration-150 border-b-4 border-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-300;
+  @apply bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 text-slate-950 font-black py-3.5 px-7 rounded-2xl shadow-xl transform active:scale-95 transition-all duration-150 border-b-4 border-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950;
 }
 
 .btn-game-green {
   @apply bg-gradient-to-r from-emerald-400 to-teal-600 hover:from-emerald-500 hover:to-teal-700 text-white font-bold py-3 px-6 rounded-2xl shadow-xl transform active:scale-95 transition-all duration-150 border-b-4 border-emerald-900;
 }
 
-/* Ambient glow background for TV and mobile */
+.btn-ghost {
+  @apply bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-slate-300 hover:text-white rounded-2xl transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400;
+}
+
+.btn-disabled {
+  @apply bg-slate-800 text-slate-600 border border-slate-700 cursor-not-allowed opacity-60;
+}
+
+/* ---------------------------------------------------------------------------
+   Superficies
+   --------------------------------------------------------------------------- */
+
 .party-bg-ambient {
-  background: 
+  background:
     radial-gradient(circle at 15% 15%, rgba(99, 102, 241, 0.12) 0%, transparent 45%),
     radial-gradient(circle at 85% 85%, rgba(236, 72, 153, 0.12) 0%, transparent 45%),
     radial-gradient(circle at 50% 50%, rgba(245, 158, 11, 0.05) 0%, transparent 60%),
-    #0B0F19;
+    #0b0f19;
+  background-attachment: fixed;
 }
 
-/* Glass & Card styles */
+.panel {
+  @apply bg-slate-900/85 border border-slate-800 rounded-3xl shadow-2xl;
+}
+
+.panel-soft {
+  @apply bg-slate-800/60 border border-slate-700/70 rounded-2xl;
+}
+
 .glass-panel {
   background: rgba(18, 24, 38, 0.75);
   backdrop-filter: blur(16px);
@@ -71,17 +163,20 @@ canvas {
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.glass-panel-tv {
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 2px solid rgba(99, 102, 241, 0.25);
+/* ---------------------------------------------------------------------------
+   Scrollbar
+   --------------------------------------------------------------------------- */
+
+.scroll-area {
+  overflow-y: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(99, 102, 241, 0.5) transparent;
 }
 
-/* Custom sleek scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -90,10 +185,24 @@ canvas {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.45);
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(99, 102, 241, 0.7);
+  background: rgba(99, 102, 241, 0.75);
+}
+
+/* ---------------------------------------------------------------------------
+   Accesibilidad
+   --------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

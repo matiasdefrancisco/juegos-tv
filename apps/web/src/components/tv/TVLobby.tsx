@@ -1,8 +1,18 @@
 import React, { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Play, Sparkles, Smartphone, QrCode, Settings, SlidersHorizontal, Check } from 'lucide-react';
+import {
+  CATEGORIES,
+  GameMode,
+  GameSettings,
+  getDifficultyMeta,
+  RoundMode
+} from '@party-draw/shared';
+import { Play, QrCode, Settings, Smartphone, Sparkles, Users } from 'lucide-react';
 import { useSocket } from '../../context/SocketContext';
+import { Modal } from '../common/Modal';
+import { GameSetupPanel } from '../common/GameSetupPanel';
+import { TeamBoard } from '../common/TeamBoard';
 
 export const TVLobby: React.FC = () => {
   const { gameState, gameCode, startGame, updateSettings } = useSocket();
@@ -10,257 +20,238 @@ export const TVLobby: React.FC = () => {
 
   if (!gameState || !gameCode) return null;
 
-  const currentHost = window.location.host;
-  const protocol = window.location.protocol;
-  const joinUrl = `${protocol}//${currentHost}/join/${gameCode}`;
+  const { settings } = gameState;
+  const joinUrl = `${window.location.protocol}//${window.location.host}/join/${gameCode}`;
+  const isLocalhostUrl = /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname);
 
   const players = gameState.players || [];
-  const canStart = players.length >= 2;
+  const connectedPlayers = players.filter((p) => p.connected);
+  const isTeamMode = settings.mode === GameMode.TEAMS;
 
-  const handleUpdateRounds = (totalRounds: number) => {
-    updateSettings({ totalRounds });
-  };
+  const activeTeams = gameState.teams.filter((team) =>
+    connectedPlayers.some((p) => p.teamId === team.id)
+  );
 
-  const handleUpdateDuration = (roundDuration: number) => {
-    updateSettings({ roundDuration });
-  };
+  const canStart = isTeamMode ? activeTeams.length >= 2 : connectedPlayers.length >= 2;
 
-  const handleUpdateMaxPlayers = (maxPlayers: number) => {
-    updateSettings({ maxPlayers });
-  };
+  const startHint = canStart
+    ? '¡Todo listo para comenzar!'
+    : isTeamMode
+    ? 'Hacen falta al menos 2 equipos con jugadores'
+    : 'Se necesitan al menos 2 jugadores';
+
+  const handleSettingsChange = (patch: Partial<GameSettings>) => updateSettings(patch);
+
+  const difficulty = getDifficultyMeta(settings.difficulty);
+  const categoryLabels = settings.categories
+    .map((id) => CATEGORIES.find((c) => c.id === id)?.label ?? id)
+    .join(' · ');
 
   return (
-    <div className="w-full h-full flex flex-col justify-between p-8 max-w-7xl mx-auto">
-      {/* Top Banner */}
-      <div className="text-center space-y-2">
+    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-5">
+      {/* Encabezado */}
+      <header className="text-center space-y-2">
         <motion.div
-          initial={{ opacity: 0, y: -20 }}
+          initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
-          className="inline-flex items-center space-x-2 bg-indigo-500/20 border border-indigo-500/30 px-4 py-1.5 rounded-full text-indigo-300 font-semibold text-sm"
+          className="inline-flex items-center gap-2 bg-indigo-500/20 border border-indigo-500/30 px-4 py-1.5 rounded-full text-indigo-300 font-semibold text-xs sm:text-sm"
         >
-          <Sparkles size={16} />
+          <Sparkles size={14} />
           <span>¡DIBUJO Y ADIVINANZA MULTIJUGADOR!</span>
         </motion.div>
-        <h2 className="text-5xl md:text-6xl font-black font-game text-white tracking-tight">
-          SALA DE ESPERA
-        </h2>
-        <p className="text-slate-400 text-lg md:text-xl font-medium">
-          Entrá desde tu celular escaneando el código QR o ingresando a la dirección web
-        </p>
-      </div>
 
-      {/* Main Center Area: QR Card + Join Code + Players Grid / Settings Modal */}
-      <div className="grid grid-cols-12 gap-8 my-auto items-center">
-        {/* Left Card: QR & Code */}
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
+        <h2 className="tv-title font-black font-game text-white tracking-tight">SALA DE ESPERA</h2>
+        <p className="tv-subtitle text-slate-400 font-medium max-w-2xl mx-auto">
+          Entrá desde tu celular escaneando el código QR o cargando el código de sala
+        </p>
+      </header>
+
+      {/* Cuerpo: QR + jugadores. En pantallas angostas se apila. */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* Ingreso */}
+        <motion.section
+          initial={{ scale: 0.96, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.4 }}
-          className="col-span-5 bg-slate-800/90 border-2 border-indigo-500/40 rounded-3xl p-8 shadow-2xl flex flex-col items-center text-center space-y-6"
+          transition={{ duration: 0.35 }}
+          className="lg:col-span-5 panel p-5 sm:p-6 flex flex-col items-center text-center gap-4"
         >
-          <div className="flex items-center space-x-2 text-indigo-400 font-bold text-lg uppercase tracking-wider">
-            <Smartphone size={24} />
+          <div className="flex items-center gap-2 text-indigo-400 font-bold text-sm sm:text-base uppercase tracking-wider">
+            <Smartphone size={20} />
             <span>Escaneá con tu celular</span>
           </div>
 
-          <div className="bg-white p-5 rounded-2xl shadow-xl">
+          <div className="bg-white p-3 sm:p-4 rounded-2xl shadow-xl">
             <QRCodeSVG
               value={joinUrl}
-              size={220}
-              level="H"
+              size={168}
+              level="M"
               includeMargin={false}
+              className="w-[clamp(120px,18vh,200px)] h-[clamp(120px,18vh,200px)]"
             />
           </div>
 
-          <div className="w-full space-y-1">
-            <span className="text-xs text-slate-400 font-bold uppercase tracking-widest">
+          <div className="w-full space-y-1.5">
+            <span className="text-[11px] text-slate-400 font-bold uppercase tracking-widest">
               O ingresá el código
             </span>
-            <div className="bg-slate-900/90 border border-slate-700 py-3 px-6 rounded-2xl">
-              <span className="font-mono text-5xl font-black tracking-widest text-amber-400">
+            <div className="bg-slate-950/80 border border-slate-700 py-2.5 px-4 rounded-2xl">
+              <span className="tv-code font-mono font-black tracking-[0.2em] text-amber-400">
                 {gameCode}
               </span>
             </div>
-            <span className="text-xs text-slate-500 block pt-1 font-mono">
-              {joinUrl}
-            </span>
+            <span className="text-[11px] text-slate-500 block font-mono break-all">{joinUrl}</span>
+
+            {isLocalhostUrl && (
+              <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 mt-2 leading-relaxed text-left">
+                Estás en <span className="font-mono">localhost</span>: los celulares no van a poder
+                entrar con este QR. Abrí la TV usando la IP de red de esta computadora.
+              </p>
+            )}
           </div>
-        </motion.div>
+        </motion.section>
 
-        {/* Right Area: Players Grid or Settings Toggle */}
-        <div className="col-span-7 bg-slate-800/60 border border-slate-700/80 rounded-3xl p-8 shadow-2xl flex flex-col justify-between min-h-[460px]">
-          {showSettings ? (
-            /* Settings Panel */
-            <div className="space-y-6">
-              <div className="flex items-center justify-between border-b border-slate-700 pb-4">
-                <div className="flex items-center space-x-3">
-                  <Settings className="text-amber-400" size={28} />
-                  <h3 className="text-2xl font-bold text-white font-game">Configuración de Partida</h3>
-                </div>
-                <button
-                  onClick={() => setShowSettings(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-sm"
-                >
-                  Volver al Lobby
-                </button>
-              </div>
-
-              <div className="space-y-5">
-                {/* Total Rounds */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                    Cantidad de Rondas
-                  </label>
-                  <div className="grid grid-cols-3 gap-3">
-                    {[3, 5, 8].map((r) => (
-                      <button
-                        key={r}
-                        type="button"
-                        onClick={() => handleUpdateRounds(r)}
-                        className={`py-3 px-4 rounded-xl font-game font-bold text-lg border transition-all ${
-                          gameState.settings.totalRounds === r
-                            ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg'
-                            : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
-                        }`}
-                      >
-                        {r} Rondas
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Duration per round */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                    Tiempo por Turno
-                  </label>
-                  <div className="grid grid-cols-3 gap-3">
-                    {[30, 60, 90].map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => handleUpdateDuration(d)}
-                        className={`py-3 px-4 rounded-xl font-game font-bold text-lg border transition-all ${
-                          gameState.settings.roundDuration === d
-                            ? 'bg-pink-600 border-pink-400 text-white shadow-lg'
-                            : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
-                        }`}
-                      >
-                        {d} Segundos
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Max Players */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                    Máximo de Jugadores
-                  </label>
-                  <div className="grid grid-cols-3 gap-3">
-                    {[4, 8, 12].map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => handleUpdateMaxPlayers(m)}
-                        className={`py-3 px-4 rounded-xl font-game font-bold text-lg border transition-all ${
-                          gameState.settings.maxPlayers === m
-                            ? 'bg-emerald-600 border-emerald-400 text-white shadow-lg'
-                            : 'bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800'
-                        }`}
-                      >
-                        Hasta {m}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
+        {/* Jugadores o equipos */}
+        <section className="lg:col-span-7 panel p-5 sm:p-6 flex flex-col gap-4">
+          <header className="flex items-center justify-between gap-3 border-b border-slate-700/70 pb-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <Users className="text-pink-400 flex-shrink-0" size={22} />
+              <h3 className="text-lg sm:text-xl font-bold text-white font-game truncate">
+                {isTeamMode ? 'Equipos' : 'Jugadores conectados'}
+              </h3>
             </div>
-          ) : (
-            /* Players List Panel */
-            <div className="space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-700 pb-4">
-                <div className="flex items-center space-x-3">
-                  <Users className="text-pink-400" size={28} />
-                  <h3 className="text-2xl font-bold text-white font-game">Jugadores Conectados</h3>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <button
-                    onClick={() => setShowSettings(true)}
-                    className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition-colors"
-                    title="Ajustes de partida"
-                  >
-                    <SlidersHorizontal size={20} />
-                  </button>
-                  <span className="bg-indigo-600/30 text-indigo-300 font-mono font-bold px-3 py-1 rounded-xl text-lg border border-indigo-500/30">
-                    {players.length} / {gameState.settings.maxPlayers}
-                  </span>
-                </div>
-              </div>
 
-              {players.length === 0 ? (
-                <div className="h-64 flex flex-col items-center justify-center text-slate-500 space-y-3">
-                  <QrCode size={48} className="animate-pulse opacity-40" />
-                  <p className="text-lg font-medium">Esperando a que los jugadores se unan...</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-h-[300px] overflow-y-auto pr-1">
-                  <AnimatePresence>
-                    {players.map((p) => (
-                      <motion.div
-                        key={p.id}
-                        initial={{ scale: 0.5, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.5, opacity: 0 }}
-                        className="bg-slate-900/80 border border-slate-700/60 rounded-2xl p-3 flex items-center space-x-3 shadow-md"
-                      >
-                        <div
-                          className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shadow-inner border border-white/20"
-                          style={{ backgroundColor: p.color }}
-                        >
-                          {p.avatar}
-                        </div>
-                        <div className="overflow-hidden">
-                          <p className="font-bold text-white text-base truncate">{p.name}</p>
-                          {p.isHost && (
-                            <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-semibold">
-                              ANFITRIÓN
-                            </span>
-                          )}
-                        </div>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
-                </div>
-              )}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => setShowSettings(true)}
+                className="btn-ghost px-3 py-2 flex items-center gap-2 text-sm font-bold"
+              >
+                <Settings size={16} />
+                <span className="hidden sm:inline">Configurar</span>
+              </button>
+
+              <span className="bg-indigo-600/30 text-indigo-300 font-mono font-bold px-3 py-1.5 rounded-xl text-sm border border-indigo-500/30">
+                {connectedPlayers.length}
+                {!isTeamMode && ` / ${settings.maxPlayers}`}
+              </span>
             </div>
-          )}
+          </header>
 
-          {/* Bottom Action */}
-          <div className="pt-6 border-t border-slate-700/60 flex items-center justify-between">
-            <p className="text-slate-400 text-sm">
-              {canStart ? '¡Todo listo para comenzar!' : 'Se necesitan al menos 2 jugadores'}
-            </p>
+          {/* Zona de listado con scroll propio y alto acotado */}
+          <div className="scroll-area max-h-[42vh] min-h-[140px] pr-1">
+            {isTeamMode ? (
+              <TeamBoard
+                teams={gameState.teams}
+                players={connectedPlayers}
+                maxPerTeam={settings.maxPlayersPerTeam}
+                compact
+              />
+            ) : connectedPlayers.length === 0 ? (
+              <div className="h-full min-h-[140px] flex flex-col items-center justify-center text-slate-500 gap-3 py-6">
+                <QrCode size={40} className="animate-pulse opacity-40" />
+                <p className="text-sm sm:text-base font-medium text-center">
+                  Esperando a que los jugadores se unan...
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 xl:grid-cols-3 gap-2.5">
+                <AnimatePresence>
+                  {connectedPlayers.map((p) => (
+                    <motion.div
+                      key={p.id}
+                      layout
+                      initial={{ scale: 0.6, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      exit={{ scale: 0.6, opacity: 0 }}
+                      className="bg-slate-950/60 border border-slate-700/60 rounded-2xl p-2.5 flex items-center gap-2.5 min-w-0"
+                    >
+                      <span
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-inner border border-white/20 flex-shrink-0"
+                        style={{ backgroundColor: p.color }}
+                        aria-hidden="true"
+                      >
+                        {p.avatar}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-bold text-white text-sm truncate">{p.name}</p>
+                        {p.isHost && (
+                          <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-semibold">
+                            ANFITRIÓN
+                          </span>
+                        )}
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
+          </div>
+
+          {/* Resumen de configuración */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-slate-700/60 text-center">
+            <SummaryChip label="Modalidad" value={isTeamMode ? 'Equipos' : 'Todos vs todos'} />
+            <SummaryChip
+              label="Dificultad"
+              value={`${difficulty.emoji} ${difficulty.label}`}
+            />
+            <SummaryChip
+              label="Ronda"
+              value={settings.roundMode === RoundMode.RISK ? '🎲 Riesgo' : '⏱️ Tiempo'}
+            />
+            <SummaryChip
+              label="Partida"
+              value={`${settings.totalRounds}×${settings.roundDuration}s`}
+            />
+          </div>
+
+          <p className="text-[11px] text-slate-500 text-center truncate" title={categoryLabels}>
+            Categorías: {categoryLabels}
+          </p>
+
+          {/* Acción principal */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-700/60">
+            <p className="text-slate-400 text-sm text-center sm:text-left">{startHint}</p>
+
             <button
               onClick={startGame}
               disabled={!canStart}
-              className={`flex items-center space-x-3 px-8 py-4 rounded-2xl text-xl font-bold font-game transition-all ${
-                canStart
-                  ? 'btn-game-yellow cursor-pointer hover:scale-105'
-                  : 'bg-slate-700 text-slate-500 cursor-not-allowed opacity-60'
+              className={`w-full sm:w-auto flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-2xl text-lg font-bold font-game transition-all ${
+                canStart ? 'btn-game-yellow' : 'btn-disabled'
               }`}
             >
-              <Play size={24} fill="currentColor" />
+              <Play size={20} fill="currentColor" />
               <span>INICIAR PARTIDA</span>
             </button>
           </div>
-        </div>
+        </section>
       </div>
 
-      {/* Footer Info */}
-      <div className="text-center text-slate-500 text-sm font-medium">
-        Rondas configuradas: {gameState.settings.totalRounds} • Tiempo por turno: {gameState.settings.roundDuration}s • Jugadores máx: {gameState.settings.maxPlayers}
-      </div>
+      {/* Configuración en modal con scroll interno */}
+      <Modal
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        title="Configuración de partida"
+        subtitle="Los cambios se aplican al instante para todos los jugadores"
+        size="lg"
+        footer={
+          <button
+            onClick={() => setShowSettings(false)}
+            className="btn-game-primary w-full py-3 text-base"
+          >
+            Listo
+          </button>
+        }
+      >
+        <GameSetupPanel settings={settings} onChange={handleSettingsChange} />
+      </Modal>
     </div>
   );
 };
+
+const SummaryChip: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="panel-soft px-2 py-2 min-w-0">
+    <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+      {label}
+    </span>
+    <span className="block text-xs sm:text-sm font-bold text-white truncate">{value}</span>
+  </div>
+);

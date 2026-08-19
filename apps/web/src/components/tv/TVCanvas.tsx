@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import { useSocket } from '../../context/SocketContext';
 import { SERVER_EVENTS, Stroke, StrokePoint } from '@party-draw/shared';
+import { drawDot, drawSegment, fitCanvasToContainer, redrawStrokes } from '../../utils/canvasDraw';
 
 interface TVCanvasProps {
   className?: string;
@@ -11,77 +12,52 @@ export const TVCanvas: React.FC<TVCanvasProps> = ({ className = '' }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastPointRef = useRef<StrokePoint | null>(null);
+  const sizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
+  // Copia viva de los trazos para poder redibujar sin re-suscribir los listeners
+  const strokesRef = useRef<Stroke[]>(activeStrokes);
 
-  // Helper to re-render all strokes
-  const redrawAllStrokes = (strokes: Stroke[]) => {
+  const repaint = useCallback((strokes: Stroke[]) => {
     const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!canvas) return;
+    const { width, height } = sizeRef.current;
+    if (width === 0 || height === 0) return;
+    redrawStrokes(canvas, strokes, width, height);
+  }, []);
 
-    const rect = container.getBoundingClientRect();
-    const w = rect.width;
-    const h = rect.height;
-
-    // Reset transform before clearing the physical buffer
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Fill white background
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
-
-    // Draw strokes in CSS coordinate space
-    strokes.forEach((stroke) => {
-      if (stroke.points.length === 0) return;
-
-      ctx.beginPath();
-      ctx.strokeStyle = stroke.isEraser ? '#FFFFFF' : stroke.color;
-      ctx.lineWidth = Math.max(2, stroke.width * Math.min(w, h));
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      const first = stroke.points[0];
-      ctx.moveTo(first.x * w, first.y * h);
-
-      for (let i = 1; i < stroke.points.length; i++) {
-        const pt = stroke.points[i];
-        ctx.lineTo(pt.x * w, pt.y * h);
-      }
-      ctx.stroke();
-    });
-  };
-
-  // Resize canvas according to container dimensions
+  // Reajuste ante cambios de tamaño (rotación, cambio de resolución de la TV)
   useEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+
     const handleResize = () => {
-      const container = containerRef.current;
-      const canvas = canvasRef.current;
-      if (!container || !canvas) return;
-
-      const rect = container.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.round(rect.width * dpr);
-      canvas.height = Math.round(rect.height * dpr);
-
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.resetTransform?.();
-        ctx.scale(dpr, dpr);
-      }
-
-      redrawAllStrokes(activeStrokes);
+      const size = fitCanvasToContainer(canvas, container);
+      if (!size) return;
+      sizeRef.current = size;
+      repaint(strokesRef.current);
     };
 
     handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [activeStrokes]);
 
-  // Real-time incremental stroke listener
+    // ResizeObserver capta también los cambios de layout, no solo los de ventana
+    const observer = new ResizeObserver(handleResize);
+    observer.observe(container);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [repaint]);
+
+  // Redibujo completo cuando llega un lienzo sincronizado (undo, reconexión, ronda nueva)
+  useEffect(() => {
+    strokesRef.current = activeStrokes;
+    lastPointRef.current = null;
+    repaint(activeStrokes);
+  }, [activeStrokes, repaint]);
+
+  // Trazado incremental en vivo
   useEffect(() => {
     if (!socket) return;
 
@@ -93,47 +69,27 @@ export const TVCanvas: React.FC<TVCanvasProps> = ({ className = '' }) => {
       isNewStroke: boolean;
     }) => {
       const canvas = canvasRef.current;
-      const container = containerRef.current;
-      if (!canvas || !container) return;
+      if (!canvas) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      const rect = container.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
-
-      const currentX = data.point.x * w;
-      const currentY = data.point.y * h;
+      const { width: w, height: h } = sizeRef.current;
+      if (w === 0 || h === 0) return;
 
       if (data.isNewStroke || !lastPointRef.current) {
+        drawDot(ctx, data.point, data.color, data.width, data.isEraser, w, h);
         lastPointRef.current = data.point;
-        ctx.beginPath();
-        ctx.fillStyle = data.isEraser ? '#FFFFFF' : data.color;
-        const radius = Math.max(1, (data.width * Math.min(w, h)) / 2);
-        ctx.arc(currentX, currentY, radius, 0, Math.PI * 2);
-        ctx.fill();
         return;
       }
 
-      const prevX = lastPointRef.current.x * w;
-      const prevY = lastPointRef.current.y * h;
-
-      ctx.beginPath();
-      ctx.strokeStyle = data.isEraser ? '#FFFFFF' : data.color;
-      ctx.lineWidth = Math.max(2, data.width * Math.min(w, h));
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      ctx.moveTo(prevX, prevY);
-      ctx.lineTo(currentX, currentY);
-      ctx.stroke();
-
+      drawSegment(ctx, lastPointRef.current, data.point, data.color, data.width, data.isEraser, w, h);
       lastPointRef.current = data.point;
     };
 
     const handleCanvasCleared = () => {
       lastPointRef.current = null;
-      redrawAllStrokes([]);
+      strokesRef.current = [];
+      repaint([]);
     };
 
     socket.on(SERVER_EVENTS.STROKE_RECEIVED, handleStrokeReceived);
@@ -143,17 +99,14 @@ export const TVCanvas: React.FC<TVCanvasProps> = ({ className = '' }) => {
       socket.off(SERVER_EVENTS.STROKE_RECEIVED, handleStrokeReceived);
       socket.off(SERVER_EVENTS.CANVAS_CLEARED, handleCanvasCleared);
     };
-  }, [socket]);
+  }, [socket, repaint]);
 
   return (
     <div
       ref={containerRef}
       className={`relative w-full h-full bg-white rounded-3xl overflow-hidden shadow-2xl border-4 border-slate-700/80 ${className}`}
     >
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full block"
-      />
+      <canvas ref={canvasRef} className="w-full h-full block" />
     </div>
   );
 };

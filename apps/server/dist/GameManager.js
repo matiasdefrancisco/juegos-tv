@@ -1,18 +1,24 @@
 import { generateRoomCode } from '@party-draw/shared';
 import { GameRoom } from './GameRoom.js';
 import { WordService } from './WordService.js';
+/** Sin nadie conectado durante este lapso, la sala se descarta */
+const IDLE_ROOM_TTL_MS = 20 * 60 * 1000;
+/** Tope duro de vida de una sala, aunque siga habiendo gente */
+const MAX_ROOM_LIFETIME_MS = 6 * 60 * 60 * 1000;
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 export class GameManager {
     rooms = new Map(); // joinCode -> GameRoom
     socketRoomMap = new Map(); // socketId -> joinCode
     wordService;
+    cleanupHandle;
     constructor() {
         this.wordService = new WordService();
-        // Periodic cleanup of abandoned rooms every 30 minutes
-        setInterval(() => this.cleanupAbandonedRooms(), 30 * 60 * 1000);
+        this.cleanupHandle = setInterval(() => this.cleanupAbandonedRooms(), CLEANUP_INTERVAL_MS);
+        // No mantiene vivo el proceso solo por el timer de limpieza
+        this.cleanupHandle.unref?.();
     }
-    createRoom(hostSocketId, settings) {
+    createRoom(settings) {
         let joinCode = generateRoomCode();
-        // Ensure unique code
         while (this.rooms.has(joinCode)) {
             joinCode = generateRoomCode();
         }
@@ -22,6 +28,8 @@ export class GameManager {
         return newRoom;
     }
     getRoom(joinCode) {
+        if (!joinCode)
+            return undefined;
         return this.rooms.get(joinCode.toUpperCase().trim());
     }
     getRoomBySocket(socketId) {
@@ -43,15 +51,23 @@ export class GameManager {
             this.rooms.delete(joinCode);
         }
     }
+    get roomCount() {
+        return this.rooms.size;
+    }
     cleanupAbandonedRooms() {
         const now = Date.now();
-        const TWO_HOURS = 2 * 60 * 60 * 1000;
         for (const [code, room] of this.rooms.entries()) {
-            const isOld = now - room.createdAt > TWO_HOURS;
-            const allDisconnected = Array.from(room.players.values()).every((p) => !p.connected);
-            if (isOld && allDisconnected) {
+            const nobodyConnected = room.getConnectedPlayers().length === 0 && room.tvSocketIds.size === 0;
+            const idleTooLong = nobodyConnected && now - room.lastActivityAt > IDLE_ROOM_TTL_MS;
+            const tooOld = now - room.createdAt > MAX_ROOM_LIFETIME_MS;
+            if (idleTooLong || tooOld) {
                 room.clearTimers();
                 this.rooms.delete(code);
+                // Limpia los sockets huérfanos que apuntaban a esta sala
+                for (const [socketId, joinCode] of this.socketRoomMap.entries()) {
+                    if (joinCode === code)
+                        this.socketRoomMap.delete(socketId);
+                }
             }
         }
     }

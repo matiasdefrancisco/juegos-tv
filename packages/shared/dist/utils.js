@@ -1,9 +1,23 @@
 /**
- * Normalizes an answer string by:
- * 1. Converting to lowercase
- * 2. Removing diacritics/accents (e.g. Pingüino -> pinguino, Avión -> avion)
- * 3. Removing punctuation and special characters
- * 4. Collapsing multiple spaces into one
+ * Marcas diacríticas combinantes (rango U+0300–U+036F).
+ * Se construye con new RegExp para que el archivo quede en ASCII puro y el
+ * patrón no dependa de la codificación con la que se guarde el fuente.
+ */
+const DIACRITICS_REGEX = new RegExp('[\\u0300-\\u036f]', 'g');
+/** Palabras vacías que no deberían decidir si una respuesta es correcta */
+const STOP_WORDS = new Set([
+    'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas',
+    'de', 'del', 'al', 'a', 'y', 'o', 'en', 'con'
+]);
+/**
+ * Normaliza una respuesta:
+ * 1. minúsculas
+ * 2. sin tildes ni diéresis (Pingüino -> pinguino)
+ * 3. sin puntuación
+ * 4. espacios colapsados
+ *
+ * Conserva los espacios internos: las respuestas de varias palabras
+ * ("El Señor de los Anillos") son válidas y se comparan completas.
  */
 export function normalizeAnswer(text) {
     if (!text)
@@ -11,38 +25,72 @@ export function normalizeAnswer(text) {
     return text
         .toLowerCase()
         .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '') // remove accents
-        .replace(/[^a-z0-9\s]/g, '') // remove non-alphanumeric except spaces
-        .replace(/\s+/g, ' ') // collapse whitespace
+        .replace(DIACRITICS_REGEX, '')
+        .replace(/[^a-z0-9\s]/g, '')
+        .replace(/\s+/g, ' ')
         .trim();
 }
+/** Versión sin artículos ni conectores, para aceptar "señor de los anillos" */
+export function stripStopWords(normalized) {
+    const kept = normalized.split(' ').filter((w) => w && !STOP_WORDS.has(w));
+    // Si todo eran artículos, se devuelve el original para no comparar contra vacío
+    return kept.length > 0 ? kept.join(' ') : normalized;
+}
 /**
- * Sanitizes a player's name (length 2-15, remove harmful HTML characters)
+ * Todas las formas aceptables de una palabra: texto, aliases, y cada una
+ * también sin artículos. Se usa tanto para acertar como para medir cercanía.
  */
+export function getAcceptedForms(word) {
+    const raw = [word.text, ...(word.aliases || [])];
+    const forms = new Set();
+    for (const item of raw) {
+        const normalized = normalizeAnswer(item);
+        if (!normalized)
+            continue;
+        forms.add(normalized);
+        forms.add(stripStopWords(normalized));
+    }
+    return Array.from(forms);
+}
+/** ¿La respuesta coincide exactamente con alguna forma aceptada? */
+export function isAnswerCorrect(guess, word) {
+    const normalizedGuess = normalizeAnswer(guess);
+    if (!normalizedGuess)
+        return false;
+    const guessForms = new Set([normalizedGuess, stripStopWords(normalizedGuess)]);
+    return getAcceptedForms(word).some((form) => guessForms.has(form));
+}
+/**
+ * Longitud de cada palabra de la respuesta, para dibujar la pista en pantalla.
+ * "Volver al Futuro" -> [6, 2, 6]
+ */
+export function getWordPattern(text) {
+    const normalized = normalizeAnswer(text);
+    if (!normalized)
+        return [];
+    return normalized.split(' ').map((w) => w.length);
+}
+/** Sanea el nombre de un jugador (2 a 15 caracteres, sin HTML) */
 export function sanitizePlayerName(rawName) {
     if (!rawName)
         return 'Jugador';
     const cleaned = rawName
-        .replace(/[<>'"&/]/g, '')
+        .replace(/[<>'"&/\\]/g, '')
+        .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 15);
     return cleaned.length >= 2 ? cleaned : `Jugador ${Math.floor(100 + Math.random() * 900)}`;
 }
-/**
- * Generates a clean 4-character room code without ambiguous characters (no I, O, 0, 1).
- */
+/** Código de sala de 4 caracteres, sin caracteres ambiguos (I, O, 0, 1) */
 const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export function generateRoomCode() {
     let code = '';
     for (let i = 0; i < 4; i++) {
-        const randomIndex = Math.floor(Math.random() * ROOM_CODE_CHARS.length);
-        code += ROOM_CODE_CHARS[randomIndex];
+        code += ROOM_CODE_CHARS[Math.floor(Math.random() * ROOM_CODE_CHARS.length)];
     }
     return code;
 }
-/**
- * Calculates Levenshtein distance between two strings
- */
+/** Distancia de edición entre dos cadenas */
 export function levenshteinDistance(a, b) {
     const an = a ? a.length : 0;
     const bn = b ? b.length : 0;
@@ -61,25 +109,42 @@ export function levenshteinDistance(a, b) {
                 matrix[j][i] = matrix[j - 1][i - 1];
             }
             else {
-                matrix[j][i] = Math.min(matrix[j - 1][i - 1] + 1, // substitution
-                matrix[j][i - 1] + 1, // insertion
-                matrix[j - 1][i] + 1 // deletion
-                );
+                matrix[j][i] = Math.min(matrix[j - 1][i - 1] + 1, matrix[j][i - 1] + 1, matrix[j - 1][i] + 1);
             }
         }
     }
     return matrix[bn][an];
 }
+/** Tolerancia de tipeo proporcional al largo: una frase admite más errores que una palabra */
+function toleranceFor(length) {
+    if (length < 4)
+        return 0;
+    if (length <= 7)
+        return 1;
+    if (length <= 14)
+        return 2;
+    return 3;
+}
 /**
- * Checks if a guess is very close to the target or any aliases (1 character diff for words >= 4 letters)
+ * ¿La respuesta estuvo cerca? Contempla errores de tipeo y también títulos
+ * largos a los que les falta o les sobra alguna palabra.
  */
-export function isGuessClose(guess, target, aliases) {
-    const normGuess = normalizeAnswer(guess);
-    const targets = [target, ...(aliases || [])].map(normalizeAnswer);
-    for (const t of targets) {
-        if (t.length >= 4) {
-            const distance = levenshteinDistance(normGuess, t);
-            if (distance === 1)
+export function isGuessClose(guess, word) {
+    const normalizedGuess = normalizeAnswer(guess);
+    if (!normalizedGuess)
+        return false;
+    const guessWords = stripStopWords(normalizedGuess).split(' ').filter(Boolean);
+    for (const form of getAcceptedForms(word)) {
+        if (form.length < 3)
+            continue;
+        const distance = levenshteinDistance(normalizedGuess, form);
+        if (distance > 0 && distance <= toleranceFor(form.length))
+            return true;
+        // Títulos: acierta la mayoría de las palabras significativas
+        const formWords = form.split(' ').filter(Boolean);
+        if (formWords.length > 1 && guessWords.length > 0) {
+            const shared = formWords.filter((w) => guessWords.includes(w)).length;
+            if (shared >= Math.ceil(formWords.length / 2) && shared < formWords.length)
                 return true;
         }
     }

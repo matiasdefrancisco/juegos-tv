@@ -1,12 +1,28 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { DRAWING_PALETTE, Stroke, StrokePoint } from '@party-draw/shared';
-import { RotateCcw, Trash2, Eraser, PenTool, Sparkles } from 'lucide-react';
+import { Eraser, RotateCcw, Sparkles, Trash2 } from 'lucide-react';
 import { useSocket } from '../../context/SocketContext';
+import {
+  clearCanvas as clearCanvasSurface,
+  drawDot,
+  drawSegment,
+  fitCanvasToContainer,
+  redrawStrokes
+} from '../../utils/canvasDraw';
 
 interface MobileCanvasProps {
   wordText: string;
   category: string;
 }
+
+/** Distancia mínima entre puntos enviados: recorta tráfico sin que se note */
+const MIN_POINT_DISTANCE = 0.004;
+
+const BRUSH_SIZES = [
+  { size: 0.005, label: 'Fino' },
+  { size: 0.012, label: 'Medio' },
+  { size: 0.024, label: 'Grueso' }
+];
 
 export const MobileCanvas: React.FC<MobileCanvasProps> = ({ wordText, category }) => {
   const { sendStrokePoint, sendStrokeEnd, clearCanvas, undoStroke, activeStrokes } = useSocket();
@@ -15,100 +31,82 @@ export const MobileCanvas: React.FC<MobileCanvasProps> = ({ wordText, category }
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const [selectedColor, setSelectedColor] = useState<string>('#000000');
-  const [brushWidth, setBrushWidth] = useState<number>(0.008); // Normalized width
+  const [brushWidth, setBrushWidth] = useState<number>(0.012);
   const [isEraser, setIsEraser] = useState<boolean>(false);
+
   const isDrawingRef = useRef<boolean>(false);
   const lastPointRef = useRef<StrokePoint | null>(null);
+  const sizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
+  const strokesRef = useRef<Stroke[]>(activeStrokes);
 
-  // Redraw all strokes for undo / initial load / resize
-  const redrawAllStrokes = useCallback((strokes: Stroke[]) => {
+  // Los handlers se registran una vez y leen la herramienta activa por ref
+  const toolRef = useRef({ color: selectedColor, width: brushWidth, isEraser });
+  toolRef.current = { color: selectedColor, width: brushWidth, isEraser };
+
+  const repaint = useCallback((strokes: Stroke[]) => {
     const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const rect = container.getBoundingClientRect();
-    const w = rect.width;
-    const h = rect.height;
-
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
-
-    strokes.forEach((stroke) => {
-      if (stroke.points.length === 0) return;
-
-      ctx.beginPath();
-      ctx.strokeStyle = stroke.isEraser ? '#FFFFFF' : stroke.color;
-      ctx.lineWidth = Math.max(2, stroke.width * Math.min(w, h));
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      const first = stroke.points[0];
-      ctx.moveTo(first.x * w, first.y * h);
-
-      for (let i = 1; i < stroke.points.length; i++) {
-        const pt = stroke.points[i];
-        ctx.lineTo(pt.x * w, pt.y * h);
-      }
-      ctx.stroke();
-    });
+    if (!canvas) return;
+    const { width, height } = sizeRef.current;
+    if (width === 0 || height === 0) return;
+    redrawStrokes(canvas, strokes, width, height);
   }, []);
 
-  // Resize canvas based on device pixel ratio
   useEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+
     const handleResize = () => {
-      const container = containerRef.current;
-      const canvas = canvasRef.current;
-      if (!container || !canvas) return;
-
-      const rect = container.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.round(rect.width * dpr);
-      canvas.height = Math.round(rect.height * dpr);
-
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.resetTransform?.();
-        ctx.scale(dpr, dpr);
-      }
-
-      redrawAllStrokes(activeStrokes);
+      const size = fitCanvasToContainer(canvas, container);
+      if (!size) return;
+      sizeRef.current = size;
+      repaint(strokesRef.current);
     };
 
     handleResize();
+
+    const observer = new ResizeObserver(handleResize);
+    observer.observe(container);
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [activeStrokes, redrawAllStrokes]);
+    window.addEventListener('orientationchange', handleResize);
 
-  // Sync canvas redraw on undo / server stroke changes
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, [repaint]);
+
   useEffect(() => {
-    if (!isDrawingRef.current) {
-      redrawAllStrokes(activeStrokes);
-    }
-  }, [activeStrokes, redrawAllStrokes]);
+    strokesRef.current = activeStrokes;
+    if (!isDrawingRef.current) repaint(activeStrokes);
+  }, [activeStrokes, repaint]);
 
-  const getNormalizedPoint = useCallback((e: React.PointerEvent<HTMLCanvasElement>): StrokePoint | null => {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-    const rect = canvas.getBoundingClientRect();
+  const getNormalizedPoint = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>): StrokePoint | null => {
+      const canvas = canvasRef.current;
+      if (!canvas) return null;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return null;
 
-    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    return { x, y };
-  }, []);
+      return {
+        x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+        y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+      };
+    },
+    []
+  );
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const canvas = canvasRef.current;
     if (!canvas) return;
+
     try {
       canvas.setPointerCapture(e.pointerId);
-    } catch {}
+    } catch {
+      /* algunos navegadores lo rechazan; el trazo funciona igual */
+    }
 
     const point = getNormalizedPoint(e);
     if (!point) return;
@@ -116,98 +114,75 @@ export const MobileCanvas: React.FC<MobileCanvasProps> = ({ wordText, category }
     isDrawingRef.current = true;
     lastPointRef.current = point;
 
-    // Draw local dot immediately
     const ctx = canvas.getContext('2d');
-    if (ctx) {
-      const rect = canvas.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
-      ctx.beginPath();
-      ctx.fillStyle = isEraser ? '#FFFFFF' : selectedColor;
-      const radius = Math.max(1, (brushWidth * Math.min(w, h)) / 2);
-      ctx.arc(point.x * w, point.y * h, radius, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    const { width: w, height: h } = sizeRef.current;
+    const { color, width, isEraser: eraser } = toolRef.current;
 
-    sendStrokePoint(point, selectedColor, brushWidth, isEraser, true);
+    if (ctx && w > 0) drawDot(ctx, point, color, width, eraser, w, h);
+    sendStrokePoint(point, color, width, eraser, true);
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
     if (!isDrawingRef.current || !lastPointRef.current) return;
+    e.preventDefault();
 
     const currentPoint = getNormalizedPoint(e);
     if (!currentPoint) return;
 
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      const rect = canvas.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
+    const last = lastPointRef.current;
+    if (Math.hypot(currentPoint.x - last.x, currentPoint.y - last.y) < MIN_POINT_DISTANCE) return;
 
-      ctx.beginPath();
-      ctx.strokeStyle = isEraser ? '#FFFFFF' : selectedColor;
-      ctx.lineWidth = Math.max(2, brushWidth * Math.min(w, h));
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
+    const ctx = canvasRef.current?.getContext('2d');
+    const { width: w, height: h } = sizeRef.current;
+    const { color, width, isEraser: eraser } = toolRef.current;
 
-      ctx.moveTo(lastPointRef.current.x * w, lastPointRef.current.y * h);
-      ctx.lineTo(currentPoint.x * w, currentPoint.y * h);
-      ctx.stroke();
-    }
+    if (ctx && w > 0) drawSegment(ctx, last, currentPoint, color, width, eraser, w, h);
 
-    sendStrokePoint(currentPoint, selectedColor, brushWidth, isEraser, false);
+    sendStrokePoint(currentPoint, color, width, eraser, false);
     lastPointRef.current = currentPoint;
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawingRef.current) return;
     e.preventDefault();
-    if (isDrawingRef.current) {
-      isDrawingRef.current = false;
-      lastPointRef.current = null;
-      sendStrokeEnd();
-    }
+
+    isDrawingRef.current = false;
+    lastPointRef.current = null;
+    sendStrokeEnd();
   };
 
   const handleLocalClear = () => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.save();
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.restore();
-    }
+    if (canvas) clearCanvasSurface(canvas);
+    isDrawingRef.current = false;
+    lastPointRef.current = null;
     clearCanvas();
   };
 
   return (
-    <div className="w-full h-full flex flex-col justify-between p-2 select-none touch-none max-w-lg mx-auto">
-      {/* Secret Word Prompt Box */}
-      <div className="bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-500 p-0.5 rounded-2xl shadow-xl mb-1.5 flex-shrink-0">
-        <div className="bg-slate-950 px-4 py-2 rounded-[14px] flex items-center justify-between">
-          <div className="overflow-hidden">
-            <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest flex items-center space-x-1">
-              <Sparkles size={11} />
-              <span>TU PALABRA ({category})</span>
+    <div className="w-full h-full flex flex-col gap-2 p-2 select-none touch-none max-w-lg mx-auto min-h-0">
+      {/* Palabra secreta */}
+      <div className="bg-gradient-to-r from-indigo-500 via-purple-600 to-pink-500 p-0.5 rounded-2xl shadow-xl flex-shrink-0">
+        <div className="bg-slate-950 px-3 py-2 rounded-[14px] flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest flex items-center gap-1">
+              <Sparkles size={11} className="flex-shrink-0" />
+              <span className="truncate">TU PALABRA ({category})</span>
             </span>
-            <h3 className="font-game font-black text-xl sm:text-2xl text-white tracking-wide uppercase truncate">
+            <h3 className="font-game font-black text-lg sm:text-2xl text-white tracking-wide uppercase truncate">
               {wordText}
             </h3>
           </div>
-          <span className="text-2xl ml-2 flex-shrink-0 animate-bounce-short">🤫</span>
+          <span className="text-xl flex-shrink-0" aria-hidden="true">
+            🤫
+          </span>
         </div>
       </div>
 
-      {/* Responsive Drawing Canvas Area */}
+      {/* Lienzo: ocupa lo que sobra sin colapsar nunca */}
       <div
         ref={containerRef}
-        className="flex-1 w-full relative bg-white rounded-2xl overflow-hidden shadow-2xl border-2 border-slate-700 min-h-[280px]"
+        className="flex-1 min-h-[180px] w-full relative bg-white rounded-2xl overflow-hidden shadow-2xl border-2 border-slate-700"
       >
         <canvas
           ref={canvasRef}
@@ -215,18 +190,20 @@ export const MobileCanvas: React.FC<MobileCanvasProps> = ({ wordText, category }
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
+          onPointerLeave={handlePointerUp}
           className="w-full h-full block cursor-crosshair touch-none"
         />
       </div>
 
-      {/* Toolbar: Colors + Brush Sizes + Actions */}
-      <div className="mt-2 space-y-2 bg-slate-900/95 border border-slate-800 p-2.5 rounded-2xl shadow-2xl flex-shrink-0 safe-bottom">
-        {/* Colors Palette */}
-        <div className="flex items-center justify-between gap-1.5 overflow-x-auto pb-1">
+      {/* Herramientas */}
+      <div className="space-y-2 panel p-2.5 flex-shrink-0 safe-bottom">
+        <div className="flex items-center justify-between gap-1.5 overflow-x-auto pb-0.5">
           {DRAWING_PALETTE.map((color) => (
             <button
               key={color}
               type="button"
+              aria-label={`Color ${color}`}
+              aria-pressed={!isEraser && selectedColor === color}
               onClick={() => {
                 setSelectedColor(color);
                 setIsEraser(false);
@@ -235,29 +212,24 @@ export const MobileCanvas: React.FC<MobileCanvasProps> = ({ wordText, category }
               className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border-2 transition-all flex-shrink-0 ${
                 !isEraser && selectedColor === color
                   ? 'scale-125 border-white shadow-lg ring-2 ring-indigo-500'
-                  : 'border-slate-700 opacity-80 hover:opacity-100'
+                  : 'border-slate-700 opacity-80'
               }`}
             />
           ))}
         </div>
 
-        {/* Tools row */}
-        <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/80">
-          {/* Brush Sizes */}
-          <div className="flex items-center space-x-1.5">
-            {[
-              { size: 0.005, label: 'Fino' },
-              { size: 0.012, label: 'Medio' },
-              { size: 0.024, label: 'Grueso' }
-            ].map(({ size, label }) => (
+        <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-800/80">
+          <div className="flex items-center gap-1.5">
+            {BRUSH_SIZES.map(({ size, label }) => (
               <button
                 key={label}
                 type="button"
                 onClick={() => setBrushWidth(size)}
-                className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${
+                aria-pressed={brushWidth === size}
+                className={`px-2.5 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
                   brushWidth === size
                     ? 'bg-indigo-600 text-white shadow-md'
-                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                    : 'bg-slate-800 text-slate-400'
                 }`}
               >
                 {label}
@@ -265,37 +237,37 @@ export const MobileCanvas: React.FC<MobileCanvasProps> = ({ wordText, category }
             ))}
           </div>
 
-          {/* Action buttons */}
-          <div className="flex items-center space-x-1.5">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => setIsEraser(!isEraser)}
-              className={`p-2 rounded-xl border transition-all ${
+              aria-label="Goma de borrar"
+              aria-pressed={isEraser}
+              className={`p-2 rounded-lg border transition-all ${
                 isEraser
-                  ? 'bg-pink-600 text-white border-pink-500 shadow-md scale-105'
-                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                  ? 'bg-pink-600 text-white border-pink-500 shadow-md'
+                  : 'bg-slate-800 text-slate-300 border-slate-700'
               }`}
-              title="Goma de borrar"
             >
-              <Eraser size={18} />
+              <Eraser size={17} />
             </button>
 
             <button
               type="button"
               onClick={undoStroke}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition-all active:scale-90"
-              title="Deshacer trazo"
+              aria-label="Deshacer trazo"
+              className="btn-ghost p-2 rounded-lg"
             >
-              <RotateCcw size={18} />
+              <RotateCcw size={17} />
             </button>
 
             <button
               type="button"
               onClick={handleLocalClear}
-              className="p-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/40 border border-rose-500/40 text-rose-300 transition-all active:scale-90"
-              title="Borrar todo"
+              aria-label="Borrar todo el dibujo"
+              className="p-2 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 border border-rose-500/40 text-rose-300 transition-all active:scale-90"
             >
-              <Trash2 size={18} />
+              <Trash2 size={17} />
             </button>
           </div>
         </div>

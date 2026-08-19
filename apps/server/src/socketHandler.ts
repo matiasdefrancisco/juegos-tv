@@ -1,80 +1,140 @@
 import { Server, Socket } from 'socket.io';
 import {
+  AttachTvPayload,
   CLIENT_EVENTS,
   CreateGamePayload,
   DrawWordPayload,
+  GameOverPayload,
   GameSettings,
   GameStatus,
+  GuessFeedbackPayload,
   JoinGamePayload,
   PlayerGuessedPayload,
   ReconnectPayload,
   RoundEndedPayload,
-  SendStrokeEndPayload,
-  SendStrokePointPayload,
+  SendStrokeChunkPayload,
   SERVER_EVENTS,
-  Stroke,
-  SubmitGuessPayload
+  SetTeamPayload,
+  StrokePoint,
+  StrokeReceivedPayload,
+  SubmitGuessPayload,
+  TeamAnsweredPayload,
+  TIMINGS
 } from '@party-draw/shared';
+import { AnswerBlockReason } from '@party-draw/shared';
 import { GameManager } from './GameManager.js';
-import { GameRoom } from './GameRoom.js';
+import { GameRoom, RoundEndReason } from './GameRoom.js';
+
+/** Máximo de puntos aceptados en un solo lote, como red de seguridad */
+const MAX_POINTS_PER_CHUNK = 120;
+/** Los estados se agrupan en esta ventana para no saturar en respuestas simultáneas */
+const STATE_COALESCE_MS = 80;
+
+/** Por qué se rechazó un intento, en lenguaje de jugador */
+const BLOCK_MESSAGES: Record<AnswerBlockReason, string> = {
+  DRAWER: 'Estás dibujando: no podés adivinar tu propia palabra',
+  NOT_YOUR_TURN: 'Es el turno del otro equipo. ¡Mirá y esperá el tuyo!',
+  ALREADY_ANSWERED: 'Ya usaste tu respuesta en esta ronda',
+  TEAM_ANSWERED: 'Tu equipo ya cerró su turno en esta ronda',
+  NO_ATTEMPTS_LEFT: 'Tu equipo se quedó sin intentos'
+};
 
 export function setupSocketHandlers(io: Server, gameManager: GameManager): void {
-  // Helper to start the round timer on the server
-  const setupRoundTimer = (room: GameRoom) => {
-    room.clearTimers();
+  /** Emisiones de estado pendientes por sala, para agruparlas */
+  const pendingStateEmits = new Map<string, NodeJS.Timeout>();
+
+  function flushState(room: GameRoom): void {
+    const pending = pendingStateEmits.get(room.joinCode);
+    if (pending) {
+      clearTimeout(pending);
+      pendingStateEmits.delete(room.joinCode);
+    }
+    room.nextVersion();
+    io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
+  }
+
+  /**
+   * Estado agrupado: varias mutaciones seguidas (aciertos simultáneos, altas de
+   * jugadores) se resuelven en un solo mensaje por sala.
+   */
+  function emitState(room: GameRoom): void {
+    if (pendingStateEmits.has(room.joinCode)) return;
+
+    const handle = setTimeout(() => {
+      pendingStateEmits.delete(room.joinCode);
+      room.nextVersion();
+      io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
+    }, STATE_COALESCE_MS);
+
+    pendingStateEmits.set(room.joinCode, handle);
+  }
+
+  function sendWordToDrawer(room: GameRoom, drawerId: string): void {
+    if (!room.currentWord) return;
+    const payload: DrawWordPayload = {
+      word: room.currentWord,
+      roundDuration: room.settings.roundDuration
+    };
+
+    for (const [socketId, playerId] of room.socketPlayerMap.entries()) {
+      if (playerId === drawerId) {
+        io.to(socketId).emit(SERVER_EVENTS.DRAW_WORD, payload);
+      }
+    }
+  }
+
+  function setupRoundTimer(room: GameRoom): void {
     const durationMs = room.settings.roundDuration * 1000;
+    room.setRoundTimer(
+      setTimeout(() => {
+        handleRoundEnd(room, 'TIME_UP');
+      }, durationMs)
+    );
+  }
 
-    const timer = setTimeout(() => {
-      handleRoundEnd(room, 'TIME_UP');
-    }, durationMs);
-
-    // Save timer reference in the room
-    (room as any).timerHandle = timer;
-  };
-
-  // Helper to start countdown (3, 2, 1) before round starts
-  const startCountdown = (room: GameRoom) => {
-    let count = 3;
+  function startCountdown(room: GameRoom): void {
+    let count = TIMINGS.COUNTDOWN_SECONDS;
     io.to(room.joinCode).emit(SERVER_EVENTS.COUNTDOWN_TICK, { count });
 
-    const interval = setInterval(() => {
-      count--;
-      if (count > 0) {
-        io.to(room.joinCode).emit(SERVER_EVENTS.COUNTDOWN_TICK, { count });
-      } else {
-        clearInterval(interval);
-        // Start the drawing round
-        const { word, drawerId } = room.startDrawingRound();
-        
-        // Broadcast public state to all (TV & guessers)
-        io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
+    room.setCountdownTimer(
+      setInterval(() => {
+        count--;
+
+        if (count > 0) {
+          io.to(room.joinCode).emit(SERVER_EVENTS.COUNTDOWN_TICK, { count });
+          return;
+        }
+
+        room.clearTimers();
+
+        // El dibujante se fue durante la cuenta regresiva: se saltea su turno
+        const nextDrawer = room.currentDrawerId ? room.getPlayer(room.currentDrawerId) : undefined;
+        if (!nextDrawer || !nextDrawer.connected) {
+          room.status = GameStatus.SCOREBOARD;
+          advanceTurn(room);
+          return;
+        }
+
+        const { drawerId } = room.startDrawingRound();
+
+        flushState(room);
         io.to(room.joinCode).emit(SERVER_EVENTS.ROUND_STARTED, {
           round: room.currentRound,
           drawerId,
-          duration: room.settings.roundDuration
+          duration: room.settings.roundDuration,
+          roundMode: room.settings.roundMode
         });
 
-        // Send SECRET word exclusively to drawer socket
-        for (const [sId, pId] of room.socketPlayerMap.entries()) {
-          if (pId === drawerId) {
-            const payload: DrawWordPayload = {
-              word,
-              roundDuration: room.settings.roundDuration
-            };
-            io.to(sId).emit(SERVER_EVENTS.DRAW_WORD, payload);
-          }
-        }
-
-        // Start authoritative server round timer
+        sendWordToDrawer(room, drawerId);
         setupRoundTimer(room);
-      }
-    }, 1000);
+      }, 1000)
+    );
+  }
 
-    (room as any).countdownHandle = interval;
-  };
+  /** Cierra la ronda. Protegido contra doble ejecución. */
+  function handleRoundEnd(room: GameRoom, reason: RoundEndReason): void {
+    if (room.status !== GameStatus.DRAWING) return;
 
-  // Helper to conclude a round and transition to round result
-  const handleRoundEnd = (room: GameRoom, reason: 'ALL_GUESSED' | 'TIME_UP' | 'DRAWER_DISCONNECTED') => {
     const result = room.endRound(reason);
     const payload: RoundEndedPayload = {
       reason,
@@ -83,24 +143,66 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
     };
 
     io.to(room.joinCode).emit(SERVER_EVENTS.ROUND_ENDED, payload);
-    io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
+    flushState(room);
 
-    // Auto-advance from ROUND_RESULT to SCOREBOARD after 5 seconds
-    setTimeout(() => {
-      if (room.status === GameStatus.ROUND_RESULT) {
-        room.status = GameStatus.SCOREBOARD;
-        io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
-      }
-    }, 5000);
-  };
+    room.setPhaseTimer(
+      setTimeout(() => {
+        showScoreboard(room);
+      }, TIMINGS.ROUND_RESULT_MS)
+    );
+  }
+
+  function showScoreboard(room: GameRoom): void {
+    if (room.status !== GameStatus.ROUND_RESULT) return;
+
+    room.status = GameStatus.SCOREBOARD;
+    room.phaseEndsAt = Date.now() + TIMINGS.SCOREBOARD_MS;
+    flushState(room);
+
+    room.setPhaseTimer(
+      setTimeout(() => {
+        advanceTurn(room);
+      }, TIMINGS.SCOREBOARD_MS)
+    );
+  }
+
+  function advanceTurn(room: GameRoom): void {
+    if (room.status !== GameStatus.SCOREBOARD) return;
+    room.clearTimers();
+
+    const { isGameOver } = room.advanceNextTurn();
+
+    if (isGameOver) {
+      const payload: GameOverPayload = {
+        winner: room.getWinner(),
+        winnerTeam: room.getWinnerTeam(),
+        players: Array.from(room.players.values()),
+        teams: Array.from(room.teams.values())
+      };
+      io.to(room.joinCode).emit(SERVER_EVENTS.GAME_OVER, payload);
+      flushState(room);
+      return;
+    }
+
+    flushState(room);
+    startCountdown(room);
+  }
 
   io.on('connection', (socket: Socket) => {
-    // 1. CREATE GAME (Usually from TV Host)
+    /** Trazo abierto de este socket: se corta con undo, clear o fin de trazo */
+    let strokeOpen = false;
+
+    // ------------------------------------------------------------------
+    // Alta y reconexión
+    // ------------------------------------------------------------------
+
     socket.on(CLIENT_EVENTS.CREATE_GAME, (data: CreateGamePayload = {}) => {
-      const room = gameManager.createRoom(socket.id, data.settings);
+      const room = gameManager.createRoom(data.settings);
+      room.attachTvSocket(socket.id);
       socket.join(room.joinCode);
       gameManager.bindSocketToRoom(socket.id, room.joinCode);
 
+      room.nextVersion();
       socket.emit(SERVER_EVENTS.GAME_CREATED, {
         gameCode: room.joinCode,
         room: room.getPublicState()
@@ -108,41 +210,70 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
       socket.emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
     });
 
-    // UPDATE SETTINGS (From Host)
-    socket.on(CLIENT_EVENTS.UPDATE_SETTINGS, (data: { gameCode: string; settings: Partial<GameSettings> }) => {
-      const room = gameManager.getRoomBySocket(socket.id);
-      if (!room) return;
-
-      room.updateSettings(data.settings);
-      io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
-    });
-
-    // 2. JOIN GAME (From Mobile Phone)
-    socket.on(CLIENT_EVENTS.JOIN_GAME, (data: JoinGamePayload) => {
-      const { gameCode, name, avatar, color, sessionId } = data;
-      const room = gameManager.getRoom(gameCode);
+    socket.on(CLIENT_EVENTS.ATTACH_TV, (data: AttachTvPayload) => {
+      const room = gameManager.getRoom(data?.gameCode);
 
       if (!room) {
-        socket.emit(SERVER_EVENTS.JOIN_ERROR, { message: 'Partida no encontrada. Verificá el código.' });
+        socket.emit(SERVER_EVENTS.ROOM_NOT_FOUND, {
+          message: 'La sala ya no existe. Creá una partida nueva.'
+        });
         return;
       }
 
-      if (room.status !== GameStatus.WAITING) {
-        // If game already started, check if this is an existing player reconnecting with sessionId
-        let existingPlayer = false;
-        for (const player of room.players.values()) {
-          if (sessionId && player.sessionId === sessionId) {
-            existingPlayer = true;
-            break;
-          }
-        }
-        if (!existingPlayer) {
-          socket.emit(SERVER_EVENTS.JOIN_ERROR, { message: 'La partida ya comenzó. Esperá a la próxima.' });
-          return;
-        }
+      room.attachTvSocket(socket.id);
+      socket.join(room.joinCode);
+      gameManager.bindSocketToRoom(socket.id, room.joinCode);
+
+      socket.emit(SERVER_EVENTS.GAME_CREATED, {
+        gameCode: room.joinCode,
+        room: room.getPublicState()
+      });
+      socket.emit(SERVER_EVENTS.SYNC_CANVAS, { strokes: room.strokes });
+      socket.emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
+    });
+
+    /**
+     * Resincronización a pedido: si un cliente sospecha que quedó atrasado
+     * (watchdog, vuelta del segundo plano) pide el estado completo.
+     */
+    socket.on(CLIENT_EVENTS.REQUEST_SYNC, () => {
+      const room = gameManager.getRoomBySocket(socket.id);
+      if (!room) {
+        socket.emit(SERVER_EVENTS.ROOM_NOT_FOUND, { message: 'La sala ya no existe.' });
+        return;
       }
 
-      if (room.players.size >= room.settings.maxPlayers && !room.socketPlayerMap.has(socket.id)) {
+      socket.emit(SERVER_EVENTS.SYNC_CANVAS, { strokes: room.strokes });
+      socket.emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
+
+      const playerId = room.socketPlayerMap.get(socket.id);
+      if (playerId && room.status === GameStatus.DRAWING && room.currentDrawerId === playerId) {
+        sendWordToDrawer(room, playerId);
+      }
+    });
+
+    socket.on(CLIENT_EVENTS.JOIN_GAME, (data: JoinGamePayload) => {
+      const { gameCode, name, avatar, color, sessionId } = data || ({} as JoinGamePayload);
+      const room = gameManager.getRoom(gameCode);
+
+      if (!room) {
+        socket.emit(SERVER_EVENTS.JOIN_ERROR, {
+          message: 'Partida no encontrada. Verificá el código.'
+        });
+        return;
+      }
+
+      const isReturningPlayer =
+        !!sessionId && Array.from(room.players.values()).some((p) => p.sessionId === sessionId);
+
+      if (room.status !== GameStatus.WAITING && !isReturningPlayer) {
+        socket.emit(SERVER_EVENTS.JOIN_ERROR, {
+          message: 'La partida ya comenzó. Esperá a la próxima.'
+        });
+        return;
+      }
+
+      if (!isReturningPlayer && room.getConnectedPlayers().length >= room.settings.maxPlayers) {
         socket.emit(SERVER_EVENTS.JOIN_ERROR, { message: 'La sala está completa.' });
         return;
       }
@@ -164,29 +295,37 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
         room: room.getPublicState()
       });
 
-      // Notify everyone in the room
+      if (isReturningPlayer) {
+        socket.emit(SERVER_EVENTS.SYNC_CANVAS, { strokes: room.strokes });
+        if (room.status === GameStatus.DRAWING && room.currentDrawerId === player.id) {
+          sendWordToDrawer(room, player.id);
+        }
+      }
+
       io.to(room.joinCode).emit(SERVER_EVENTS.PLAYER_JOINED, { player });
-      io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
+      emitState(room);
     });
 
-    // 3. RECONNECT
     socket.on(CLIENT_EVENTS.RECONNECT, (data: ReconnectPayload) => {
-      const { gameCode, playerId, sessionId } = data;
+      const { gameCode, playerId, sessionId } = data || ({} as ReconnectPayload);
       const room = gameManager.getRoom(gameCode);
 
       if (!room) {
-        socket.emit(SERVER_EVENTS.JOIN_ERROR, { message: 'Partida no encontrada' });
+        socket.emit(SERVER_EVENTS.ROOM_NOT_FOUND, { message: 'Partida no encontrada' });
         return;
       }
 
       const player = room.getPlayer(playerId);
       if (!player || player.sessionId !== sessionId) {
-        socket.emit(SERVER_EVENTS.JOIN_ERROR, { message: 'Sesión no válida' });
+        socket.emit(SERVER_EVENTS.ROOM_NOT_FOUND, { message: 'Sesión no válida' });
         return;
       }
 
       player.connected = true;
-      room.socketPlayerMap.set(socket.id, playerId);
+      room.rebindSocket(socket.id, playerId);
+      room.syncTeams();
+      room.ensureHost();
+      room.touch();
       socket.join(room.joinCode);
       gameManager.bindSocketToRoom(socket.id, room.joinCode);
 
@@ -195,104 +334,153 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
         gameCode: room.joinCode,
         room: room.getPublicState()
       });
-
-      // Send active strokes history to catch up
       socket.emit(SERVER_EVENTS.SYNC_CANVAS, { strokes: room.strokes });
 
-      // If this reconnecting player is the current drawer, re-send the secret word!
-      if (room.status === GameStatus.DRAWING && room.currentDrawerId === playerId && room.currentWord) {
-        socket.emit(SERVER_EVENTS.DRAW_WORD, {
-          word: room.currentWord,
-          roundDuration: room.settings.roundDuration
-        });
+      if (room.status === GameStatus.DRAWING && room.currentDrawerId === playerId) {
+        sendWordToDrawer(room, playerId);
       }
 
       io.to(room.joinCode).emit(SERVER_EVENTS.PLAYER_RECONNECTED, { player });
-      io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
+      emitState(room);
     });
 
-    // 4. START GAME
+    // ------------------------------------------------------------------
+    // Configuración y equipos
+    // ------------------------------------------------------------------
+
+    socket.on(
+      CLIENT_EVENTS.UPDATE_SETTINGS,
+      (data: { gameCode: string; settings: Partial<GameSettings> }) => {
+        const room = gameManager.getRoomBySocket(socket.id);
+        if (!room || !room.canControl(socket.id)) return;
+        if (room.status !== GameStatus.WAITING) return;
+
+        room.updateSettings(data?.settings || {});
+        flushState(room);
+      }
+    );
+
+    socket.on(CLIENT_EVENTS.SET_TEAM, (data: SetTeamPayload) => {
+      const room = gameManager.getRoomBySocket(socket.id);
+      if (!room || !data?.teamId) return;
+
+      const requesterId = room.socketPlayerMap.get(socket.id);
+      const targetId = data.playerId || requesterId;
+      if (!targetId) return;
+
+      // Cada uno se mueve solo; el anfitrión y la TV pueden mover a cualquiera
+      const isSelf = targetId === requesterId;
+      if (!isSelf && !room.canControl(socket.id)) return;
+
+      const moved = room.setPlayerTeam(targetId, data.teamId);
+      if (!moved) {
+        socket.emit(SERVER_EVENTS.ERROR, { message: 'Ese equipo está completo.' });
+        return;
+      }
+
+      flushState(room);
+    });
+
     socket.on(CLIENT_EVENTS.START_GAME, () => {
       const room = gameManager.getRoomBySocket(socket.id);
       if (!room) return;
 
-      const started = room.startGame();
-      if (!started) {
-        socket.emit(SERVER_EVENTS.ERROR, { message: 'Se necesitan al menos 2 jugadores para comenzar.' });
+      if (!room.canControl(socket.id)) {
+        socket.emit(SERVER_EVENTS.ERROR, {
+          message: 'Solo el anfitrión puede iniciar la partida.'
+        });
         return;
       }
 
-      io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
+      if (room.status !== GameStatus.WAITING) return;
+
+      if (!room.startGame()) {
+        socket.emit(SERVER_EVENTS.ERROR, {
+          message: room.isTeamMode
+            ? 'Hacen falta al menos 2 equipos con jugadores.'
+            : 'Se necesitan al menos 2 jugadores para comenzar.'
+        });
+        return;
+      }
+
+      flushState(room);
       startCountdown(room);
     });
 
-    // 5. DRAWING: STROKE POINT
-    let currentStroke: Stroke | null = null;
-    socket.on(CLIENT_EVENTS.SEND_STROKE_POINT, (data: SendStrokePointPayload) => {
+    // ------------------------------------------------------------------
+    // Dibujo
+    // ------------------------------------------------------------------
+
+    socket.on(CLIENT_EVENTS.SEND_STROKE_CHUNK, (data: SendStrokeChunkPayload) => {
       const room = gameManager.getRoomBySocket(socket.id);
       if (!room || room.status !== GameStatus.DRAWING) return;
 
       const playerId = room.socketPlayerMap.get(socket.id);
-      // ONLY the active drawer can send strokes
-      if (playerId !== room.currentDrawerId) return;
+      if (!playerId || playerId !== room.currentDrawerId) return;
+      if (!data || !Array.isArray(data.points) || data.points.length === 0) return;
 
-      if (data.isNewStroke || !currentStroke) {
-        currentStroke = {
-          id: `str_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-          playerId: playerId!,
-          points: [data.point],
-          color: data.color,
-          width: data.width,
-          isEraser: data.isEraser,
-          timestamp: Date.now()
-        };
-        room.addStroke(currentStroke);
-      } else {
-        currentStroke.points.push(data.point);
-      }
+      const points = sanitizePoints(data.points);
+      if (points.length === 0) return;
 
-      // Broadcast to all clients in the room except sender (who already rendered it locally)
-      socket.to(room.joinCode).emit(SERVER_EVENTS.STROKE_RECEIVED, {
-        point: data.point,
+      const isNewStroke = !!data.isNewStroke || !strokeOpen;
+      strokeOpen = true;
+
+      room.appendStrokePoints(
+        playerId,
+        points,
+        data.color,
+        data.width,
+        !!data.isEraser,
+        isNewStroke
+      );
+
+      const payload: StrokeReceivedPayload = {
+        points,
         color: data.color,
         width: data.width,
-        isEraser: data.isEraser,
-        isNewStroke: data.isNewStroke
-      });
+        isEraser: !!data.isEraser,
+        isNewStroke
+      };
+
+      // volatile: si un cliente va lento, se descartan lotes viejos en vez de
+      // acumularlos. Evita que un celular con mala señal quede clavado.
+      socket.volatile.to(room.joinCode).emit(SERVER_EVENTS.STROKE_RECEIVED, payload);
     });
 
     socket.on(CLIENT_EVENTS.SEND_STROKE_END, () => {
-      currentStroke = null;
+      strokeOpen = false;
     });
 
-    // 6. DRAWING: CLEAR CANVAS
     socket.on(CLIENT_EVENTS.CLEAR_CANVAS, () => {
       const room = gameManager.getRoomBySocket(socket.id);
       if (!room || room.status !== GameStatus.DRAWING) return;
 
       const playerId = room.socketPlayerMap.get(socket.id);
-      if (playerId !== room.currentDrawerId) return;
+      if (!playerId || playerId !== room.currentDrawerId) return;
 
       room.clearCanvas();
-      currentStroke = null;
+      strokeOpen = false;
       io.to(room.joinCode).emit(SERVER_EVENTS.CANVAS_CLEARED);
     });
 
-    // 7. DRAWING: UNDO STROKE
     socket.on(CLIENT_EVENTS.UNDO_STROKE, () => {
       const room = gameManager.getRoomBySocket(socket.id);
       if (!room || room.status !== GameStatus.DRAWING) return;
 
       const playerId = room.socketPlayerMap.get(socket.id);
-      if (playerId !== room.currentDrawerId) return;
+      if (!playerId || playerId !== room.currentDrawerId) return;
 
       room.undoLastStroke();
+      strokeOpen = false;
+
       io.to(room.joinCode).emit(SERVER_EVENTS.STROKE_UNDONE);
-      // Send full updated strokes to re-render clean canvas
       io.to(room.joinCode).emit(SERVER_EVENTS.SYNC_CANVAS, { strokes: room.strokes });
     });
 
-    // 8. GUESSING: SUBMIT GUESS
+    // ------------------------------------------------------------------
+    // Respuestas
+    // ------------------------------------------------------------------
+
     socket.on(CLIENT_EVENTS.SUBMIT_GUESS, (data: SubmitGuessPayload) => {
       const room = gameManager.getRoomBySocket(socket.id);
       if (!room || room.status !== GameStatus.DRAWING) return;
@@ -303,107 +491,175 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
       const player = room.getPlayer(playerId);
       if (!player) return;
 
-      const { isCorrect, isClose, pointsAwarded, allGuessed } = room.processGuess(
-        playerId,
-        data.text
-      );
+      const text = typeof data?.text === 'string' ? data.text.slice(0, 80) : '';
+      if (!text.trim()) return;
 
-      // Feedback exclusively to the guessing player
-      socket.emit(SERVER_EVENTS.GUESS_FEEDBACK, {
-        isCorrect,
-        isClose,
-        pointsAwarded,
-        message: isCorrect
+      const result = room.processGuess(playerId, text);
+
+      // El intento no se contó: se explica por qué sin revelar nada de la palabra
+      if (result.blocked) {
+        socket.emit(SERVER_EVENTS.GUESS_FEEDBACK, {
+          isCorrect: false,
+          isClose: false,
+          pointsAwarded: 0,
+          attemptsLeft: result.attemptsLeft,
+          message: BLOCK_MESSAGES[result.blocked]
+        } satisfies GuessFeedbackPayload);
+        return;
+      }
+
+      const feedback: GuessFeedbackPayload = {
+        isCorrect: result.isCorrect,
+        isClose: result.isClose,
+        pointsAwarded: result.pointsAwarded,
+        throttled: result.throttled,
+        pending: result.pending,
+        attemptsLeft: result.attemptsLeft,
+        message: result.throttled
+          ? 'Esperá un segundo antes de volver a intentar'
+          : result.pending
+          ? '¡Respuesta enviada! Se revela cuando respondan todos.'
+          : result.isCorrect
           ? '¡CORRECTO! Adivinaste la palabra.'
-          : isClose
+          : result.isClose
           ? '¡Estás muy cerca!'
+          : result.attemptsLeft === 0
+          ? 'Se acabaron los intentos de tu equipo'
+          : result.attemptsLeft != null
+          ? `Incorrecto. Les quedan ${result.attemptsLeft} intento${result.attemptsLeft === 1 ? '' : 's'}`
           : 'Respuesta incorrecta'
-      });
+      };
 
-      if (isCorrect) {
-        // Broadcast that this player guessed correctly (WITHOUT revealing the word!)
-        const guessedPayload: PlayerGuessedPayload = {
+      socket.emit(SERVER_EVENTS.GUESS_FEEDBACK, feedback);
+
+      // Aviso a la sala de que alguien ya usó su turno, sin revelar el resultado
+      if (result.pending || (room.isTeamMode && !result.isCorrect)) {
+        const team = result.teamId ? room.teams.get(result.teamId) : undefined;
+        if (team) {
+          const respondingTeams = room.getActiveTeams();
+          io.to(room.joinCode).emit(SERVER_EVENTS.TEAM_ANSWERED, {
+            teamId: team.id,
+            teamName: team.name,
+            teamColor: team.color,
+            playerName: player.name,
+            answeredCount: respondingTeams.filter((t) => t.hasAnswered).length,
+            totalTeams: respondingTeams.length
+          } satisfies TeamAnsweredPayload);
+        }
+      }
+
+      if (result.isCorrect) {
+        io.to(room.joinCode).emit(SERVER_EVENTS.PLAYER_GUESSED, {
           playerId: player.id,
           playerName: player.name,
-          pointsAwarded,
+          pointsAwarded: result.pointsAwarded,
           guessOrder: player.guessOrder || 1
-        };
+        } satisfies PlayerGuessedPayload);
+      }
 
-        io.to(room.joinCode).emit(SERVER_EVENTS.PLAYER_GUESSED, guessedPayload);
-        io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
+      emitState(room);
 
-        // If everyone has guessed, end the round early!
-        if (allGuessed) {
-          handleRoundEnd(room, 'ALL_GUESSED');
-        }
+      if (result.roundShouldEnd) {
+        handleRoundEnd(room, result.endReason ?? 'ALL_GUESSED');
       }
     });
 
-    // 9. NEXT ROUND (Triggered by Host or Controller)
+    // ------------------------------------------------------------------
+    // Control de partida
+    // ------------------------------------------------------------------
+
     socket.on(CLIENT_EVENTS.NEXT_ROUND, () => {
       const room = gameManager.getRoomBySocket(socket.id);
-      if (!room || room.status !== GameStatus.SCOREBOARD) return;
+      if (!room || !room.canControl(socket.id)) return;
 
-      const { isGameOver } = room.advanceNextTurn();
-
-      if (isGameOver) {
-        io.to(room.joinCode).emit(SERVER_EVENTS.GAME_OVER, {
-          winner: room.getWinner(),
-          players: Array.from(room.players.values())
-        });
-        io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
-      } else {
-        io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
-        startCountdown(room);
+      if (room.status === GameStatus.ROUND_RESULT) {
+        showScoreboard(room);
+        return;
       }
+
+      advanceTurn(room);
     });
 
-    // 10. PLAY AGAIN
     socket.on(CLIENT_EVENTS.PLAY_AGAIN, () => {
       const room = gameManager.getRoomBySocket(socket.id);
-      if (!room) return;
+      if (!room || !room.canControl(socket.id)) return;
 
-      room.status = GameStatus.WAITING;
-      room.currentRound = 0;
-      room.strokes = [];
-      room.lastRoundResult = null;
-      for (const player of room.players.values()) {
-        player.score = 0;
-        player.guessedCurrentRound = false;
-        player.currentRoundScore = 0;
-      }
-
-      io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
+      room.resetForNewGame();
+      flushState(room);
     });
 
-    // 11. DISCONNECT
+    // ------------------------------------------------------------------
+    // Baja
+    // ------------------------------------------------------------------
+
     socket.on('disconnect', () => {
       const room = gameManager.getRoomBySocket(socket.id);
+      gameManager.unbindSocket(socket.id);
+      strokeOpen = false;
       if (!room) return;
 
+      const wasTvScreen = room.tvSocketIds.has(socket.id);
+      const wasDrawing = room.status === GameStatus.DRAWING;
       const { player, newHostId } = room.removePlayer(socket.id);
-      gameManager.unbindSocket(socket.id);
 
-      if (player) {
-        io.to(room.joinCode).emit(SERVER_EVENTS.PLAYER_LEFT, { playerId: player.id });
-        if (newHostId) {
-          io.to(room.joinCode).emit(SERVER_EVENTS.HOST_CHANGED, { hostId: newHostId });
-        }
-        io.to(room.joinCode).emit(SERVER_EVENTS.GAME_STATE_UPDATE, room.getPublicState());
+      if (wasTvScreen && !player) return;
+      if (!player) return;
 
-        // If active drawer disconnected during drawing phase
-        if (room.status === GameStatus.DRAWING && room.currentDrawerId === player.id) {
-          // Give 8 seconds grace period for drawer to reconnect, otherwise skip turn
-          setTimeout(() => {
-            if (room.status === GameStatus.DRAWING && room.currentDrawerId === player.id) {
-              const drawer = room.getPlayer(player.id);
-              if (!drawer || !drawer.connected) {
-                handleRoundEnd(room, 'DRAWER_DISCONNECTED');
-              }
-            }
-          }, 8000);
-        }
+      io.to(room.joinCode).emit(SERVER_EVENTS.PLAYER_LEFT, { playerId: player.id });
+      if (newHostId) {
+        io.to(room.joinCode).emit(SERVER_EVENTS.HOST_CHANGED, { hostId: newHostId });
+      }
+      emitState(room);
+
+      if (!wasDrawing) return;
+
+      // Sin gente suficiente no tiene sentido seguir la ronda
+      if (room.getConnectedPlayers().length < 2) {
+        handleRoundEnd(room, 'DRAWER_DISCONNECTED');
+        return;
+      }
+
+      // Si ya no queda nadie que pueda responder, la ronda cierra en vez de
+      // quedarse esperando a alguien que se fue
+      const responders = room.getRespondingPlayers();
+      if (responders.length === 0) {
+        handleRoundEnd(room, 'TIME_UP');
+        return;
+      }
+
+      const allDone = responders.every((p) =>
+        room.isRiskMode ? p.hasAnswered : p.guessedCurrentRound
+      );
+      if (allDone) {
+        handleRoundEnd(room, room.isRiskMode ? 'ALL_ANSWERED' : 'ALL_GUESSED');
+        return;
+      }
+
+      if (room.currentDrawerId === player.id) {
+        setTimeout(() => {
+          if (room.status !== GameStatus.DRAWING || room.currentDrawerId !== player.id) return;
+          const drawer = room.getPlayer(player.id);
+          if (!drawer || !drawer.connected) {
+            handleRoundEnd(room, 'DRAWER_DISCONNECTED');
+          }
+        }, TIMINGS.DRAWER_DISCONNECT_GRACE_MS);
       }
     });
   });
+}
+
+/** Filtra puntos inválidos y recorta lotes desmedidos */
+function sanitizePoints(points: StrokePoint[]): StrokePoint[] {
+  const clean: StrokePoint[] = [];
+
+  for (const point of points.slice(0, MAX_POINTS_PER_CHUNK)) {
+    if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue;
+    clean.push({
+      x: Math.min(1, Math.max(0, point.x)),
+      y: Math.min(1, Math.max(0, point.y))
+    });
+  }
+
+  return clean;
 }

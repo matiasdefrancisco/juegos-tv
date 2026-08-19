@@ -11,6 +11,25 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    host: true // exposes to local network for phones to connect
+    host: true // expone el server a la red local para que entren los celulares
+  },
+  preview: {
+    port: 4173,
+    host: true
+  },
+  build: {
+    // Los navegadores de smart TV suelen ir varios años atrasados
+    target: 'es2018',
+    chunkSizeWarningLimit: 700,
+    rollupOptions: {
+      output: {
+        // Separa lo que casi nunca cambia para aprovechar la caché entre deploys
+        manualChunks: {
+          react: ['react', 'react-dom'],
+          motion: ['framer-motion'],
+          realtime: ['socket.io-client']
+        }
+      }
+    }
   }
 });

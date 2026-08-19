@@ -1,0 +1,48 @@
+# Dependencias
+node_modules/
+.pnp
+.pnp.js
+
+# Builds
+dist/
+build/
+*.tsbuildinfo
+
+# Artefactos de compilación mal ubicados (el output canónico es packages/shared/dist)
+packages/shared/src/*.js
+packages/shared/src/*.d.ts
+packages/shared/src/*.js.map
+
+# Variables de entorno
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.production
+
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+*-debug.log
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editores y SO
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Cache
+.cache/
+.temp/
+.turbo/
+.eslintcache

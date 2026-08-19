@@ -1,40 +1,78 @@
-import { INITIAL_WORD_BANK, normalizeAnswer, isGuessClose } from '@party-draw/shared';
+import { CATEGORY_IDS, getDifficultyMeta, INITIAL_WORD_BANK, isAnswerCorrect, isGuessClose } from '@party-draw/shared';
 export class WordService {
     words = [...INITIAL_WORD_BANK];
     /**
-     * Returns a random word from the available categories that hasn't been used yet in the game
+     * Elige una palabra respetando SIEMPRE las categorías seleccionadas.
+     *
+     * El orden de relajación es intencional: primero se afloja la dificultad y
+     * después se reciclan palabras ya usadas, pero nunca se sale de las categorías
+     * elegidas. (Antes, al agotarse el pool se caía al banco completo y por eso
+     * aparecían palabras que no correspondían con la categoría en pantalla.)
      */
-    getRandomWord(categories, usedWordIds) {
-        const pool = this.words.filter((w) => (categories.length === 0 || categories.includes(w.category)) && !usedWordIds.has(w.id));
-        const selectionPool = pool.length > 0 ? pool : this.words; // Fallback if all words used
-        const randomIndex = Math.floor(Math.random() * selectionPool.length);
-        return selectionPool[randomIndex];
-    }
-    /**
-     * Checks if a guess matches the target word or its aliases
-     */
-    isCorrectGuess(guess, word) {
-        const normalizedGuess = normalizeAnswer(guess);
-        if (!normalizedGuess)
-            return false;
-        const normalizedTarget = normalizeAnswer(word.text);
-        if (normalizedGuess === normalizedTarget)
-            return true;
-        if (word.aliases && word.aliases.length > 0) {
-            return word.aliases.some((alias) => normalizeAnswer(alias) === normalizedGuess);
+    getRandomWord(categories, difficulty, usedWordIds) {
+        const activeCategories = this.resolveCategories(categories);
+        const inCategory = this.words.filter((w) => activeCategories.includes(w.category));
+        // Por si una categoría quedara sin palabras cargadas
+        if (inCategory.length === 0) {
+            const fallback = this.words[Math.floor(Math.random() * this.words.length)];
+            return { word: fallback, recycled: true };
         }
-        return false;
+        const preferredLevels = getDifficultyMeta(difficulty).levels;
+        // 1) Nivel preferido, sin repetir
+        for (const level of preferredLevels) {
+            const pool = inCategory.filter((w) => w.difficulty === level && !usedWordIds.has(w.id));
+            if (pool.length > 0)
+                return { word: pickRandom(pool), recycled: false };
+        }
+        // 2) Cualquier nivel dentro de las categorías, sin repetir
+        const anyLevel = inCategory.filter((w) => !usedWordIds.has(w.id));
+        if (anyLevel.length > 0)
+            return { word: pickRandom(anyLevel), recycled: false };
+        // 3) Todo usado: se recicla, priorizando el nivel pedido
+        for (const level of preferredLevels) {
+            const pool = inCategory.filter((w) => w.difficulty === level);
+            if (pool.length > 0)
+                return { word: pickRandom(pool), recycled: true };
+        }
+        return { word: pickRandom(inCategory), recycled: true };
     }
-    /**
-     * Checks if a guess was close (for friendly player hint)
-     */
+    /** Descarta categorías inválidas y evita quedarse sin ninguna */
+    resolveCategories(categories) {
+        const valid = (categories || []).filter((c) => CATEGORY_IDS.includes(c));
+        return valid.length > 0 ? valid : [...CATEGORY_IDS];
+    }
+    /** Cuántas palabras hay disponibles para una configuración dada */
+    countAvailable(categories, difficulty) {
+        const activeCategories = this.resolveCategories(categories);
+        const levels = getDifficultyMeta(difficulty).levels;
+        return this.words.filter((w) => activeCategories.includes(w.category) && levels.includes(w.difficulty)).length;
+    }
+    isCorrectGuess(guess, word) {
+        return isAnswerCorrect(guess, word);
+    }
     isCloseGuess(guess, word) {
-        return isGuessClose(guess, word.text, word.aliases);
+        return isGuessClose(guess, word);
     }
-    /**
-     * Adds custom words (e.g. from Firestore or custom room settings)
-     */
+    /** Palabras extra (mazos personalizados, Firestore, etc.) */
     addCustomWords(customWords) {
-        this.words.push(...customWords);
+        const existingIds = new Set(this.words.map((w) => w.id));
+        for (const word of customWords) {
+            if (!existingIds.has(word.id)) {
+                this.words.push(word);
+                existingIds.add(word.id);
+            }
+        }
     }
+    getLevelBreakdown(categories) {
+        const activeCategories = this.resolveCategories(categories);
+        const breakdown = { 1: 0, 2: 0, 3: 0 };
+        for (const word of this.words) {
+            if (activeCategories.includes(word.category))
+                breakdown[word.difficulty]++;
+        }
+        return breakdown;
+    }
+}
+function pickRandom(items) {
+    return items[Math.floor(Math.random() * items.length)];
 }

@@ -8,27 +8,40 @@ import { GameManager } from './GameManager.js';
 import { setupSocketHandlers } from './socketHandler.js';
 import { initFirebase } from './firestore.js';
 dotenv.config();
+/**
+ * Orígenes permitidos. Con ALLOWED_ORIGINS vacío se acepta cualquiera,
+ * que es lo práctico en red local (los celulares entran por IP).
+ */
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+const corsOptions = {
+    origin: allowedOrigins.length > 0 ? allowedOrigins : '*',
+    methods: ['GET', 'POST']
+};
 const app = express();
-app.use(cors());
-app.use(express.json());
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '100kb' }));
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: {
-        origin: '*',
-        methods: ['GET', 'POST']
-    },
-    pingTimeout: 10000,
-    pingInterval: 5000
+    cors: corsOptions,
+    pingTimeout: 20000,
+    pingInterval: 10000,
+    // Los trazos son mensajes chicos y frecuentes: no hace falta buffer grande
+    maxHttpBufferSize: 1e5
 });
 const gameManager = new GameManager();
 setupSocketHandlers(io, gameManager);
 initFirebase();
-// Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
     res.json({
         status: 'ok',
         timestamp: new Date().toISOString(),
-        service: 'Party Draw Backend'
+        service: 'Party Draw Backend',
+        uptimeSeconds: Math.round(process.uptime()),
+        activeRooms: gameManager.roomCount,
+        connectedSockets: io.engine.clientsCount
     });
 });
 const PORT = process.env.PORT || 3001;
@@ -49,5 +62,16 @@ server.listen(PORT, () => {
     console.log(`🎨 PARTY DRAW SERVER RUNNING ON PORT ${PORT}`);
     console.log(`📡 Local:   http://localhost:${PORT}`);
     console.log(`📱 Network: http://${localIp}:${PORT}`);
+    console.log(`🔒 CORS:    ${allowedOrigins.length > 0 ? allowedOrigins.join(', ') : 'abierto (*)'}`);
     console.log('====================================================');
 });
+// Cierre ordenado para que los redeploys no dejen sockets colgados
+function shutdown(signal) {
+    console.log(`\n${signal} recibido, cerrando servidor...`);
+    io.close(() => {
+        server.close(() => process.exit(0));
+    });
+    setTimeout(() => process.exit(0), 5000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

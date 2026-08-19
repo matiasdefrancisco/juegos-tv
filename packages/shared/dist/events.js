@@ -3,18 +3,24 @@ export var CLIENT_EVENTS;
     CLIENT_EVENTS["CREATE_GAME"] = "CREATE_GAME";
     CLIENT_EVENTS["JOIN_GAME"] = "JOIN_GAME";
     CLIENT_EVENTS["RECONNECT"] = "RECONNECT";
+    /** La pantalla de TV se re-vincula a una sala existente tras recargar o perder conexión */
+    CLIENT_EVENTS["ATTACH_TV"] = "ATTACH_TV";
+    /** Pedido explícito de estado completo: red de seguridad contra desincronización */
+    CLIENT_EVENTS["REQUEST_SYNC"] = "REQUEST_SYNC";
     CLIENT_EVENTS["LEAVE_GAME"] = "LEAVE_GAME";
     CLIENT_EVENTS["START_GAME"] = "START_GAME";
     CLIENT_EVENTS["UPDATE_SETTINGS"] = "UPDATE_SETTINGS";
     CLIENT_EVENTS["KICK_PLAYER"] = "KICK_PLAYER";
-    // Drawing events
-    CLIENT_EVENTS["SEND_STROKE_POINT"] = "SEND_STROKE_POINT";
+    /** Cambio manual de equipo desde el celular o la TV */
+    CLIENT_EVENTS["SET_TEAM"] = "SET_TEAM";
+    // Dibujo
+    CLIENT_EVENTS["SEND_STROKE_CHUNK"] = "SEND_STROKE_CHUNK";
     CLIENT_EVENTS["SEND_STROKE_END"] = "SEND_STROKE_END";
     CLIENT_EVENTS["CLEAR_CANVAS"] = "CLEAR_CANVAS";
     CLIENT_EVENTS["UNDO_STROKE"] = "UNDO_STROKE";
-    // Guessing
+    // Respuestas
     CLIENT_EVENTS["SUBMIT_GUESS"] = "SUBMIT_GUESS";
-    // Host control
+    // Control de partida
     CLIENT_EVENTS["NEXT_ROUND"] = "NEXT_ROUND";
     CLIENT_EVENTS["PLAY_AGAIN"] = "PLAY_AGAIN";
 })(CLIENT_EVENTS || (CLIENT_EVENTS = {}));
@@ -23,24 +29,28 @@ export var SERVER_EVENTS;
     SERVER_EVENTS["GAME_CREATED"] = "GAME_CREATED";
     SERVER_EVENTS["JOIN_SUCCESS"] = "JOIN_SUCCESS";
     SERVER_EVENTS["JOIN_ERROR"] = "JOIN_ERROR";
+    /** La sala guardada ya no existe en el servidor */
+    SERVER_EVENTS["ROOM_NOT_FOUND"] = "ROOM_NOT_FOUND";
     SERVER_EVENTS["GAME_STATE_UPDATE"] = "GAME_STATE_UPDATE";
-    // Secret word event sent ONLY to drawer
+    /** Palabra secreta: se envía SOLO al socket del dibujante */
     SERVER_EVENTS["DRAW_WORD"] = "DRAW_WORD";
-    // Drawing broadcast to TV & other players
+    // Dibujo
     SERVER_EVENTS["STROKE_RECEIVED"] = "STROKE_RECEIVED";
     SERVER_EVENTS["CANVAS_CLEARED"] = "CANVAS_CLEARED";
     SERVER_EVENTS["STROKE_UNDONE"] = "STROKE_UNDONE";
     SERVER_EVENTS["SYNC_CANVAS"] = "SYNC_CANVAS";
-    // Guesses
+    // Respuestas
     SERVER_EVENTS["GUESS_FEEDBACK"] = "GUESS_FEEDBACK";
     SERVER_EVENTS["PLAYER_GUESSED"] = "PLAYER_GUESSED";
-    // Round lifecycle
+    /** Un equipo arriesgó (sin revelar si acertó, hasta el cierre de ronda) */
+    SERVER_EVENTS["TEAM_ANSWERED"] = "TEAM_ANSWERED";
+    // Ciclo de ronda
     SERVER_EVENTS["COUNTDOWN_TICK"] = "COUNTDOWN_TICK";
     SERVER_EVENTS["ROUND_STARTED"] = "ROUND_STARTED";
     SERVER_EVENTS["ROUND_ENDED"] = "ROUND_ENDED";
     SERVER_EVENTS["SCORE_UPDATED"] = "SCORE_UPDATED";
     SERVER_EVENTS["GAME_OVER"] = "GAME_OVER";
-    // Notifications
+    // Notificaciones
     SERVER_EVENTS["PLAYER_JOINED"] = "PLAYER_JOINED";
     SERVER_EVENTS["PLAYER_LEFT"] = "PLAYER_LEFT";
     SERVER_EVENTS["PLAYER_RECONNECTED"] = "PLAYER_RECONNECTED";
